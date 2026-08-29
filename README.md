@@ -13,10 +13,10 @@ fap/
 ├── src/
 │   ├── config.py         # carrega variáveis do .env
 │   ├── database.py       # conexão PostgreSQL + ETL
-│   ├── app.py            # backend Flask (Passos 4 e 5)
+│   ├── app.py            # backend Flask 
 │   └── collect/
-│       ├── pydriller_collect.py   # Passo 2
-│       └── github_metrics.py      # Passo 3
+│       ├── pydriller_collect.py   
+│       └── github_metrics.py      
 ├── templates/index.html
 └── static/
     ├── css/style.css
@@ -80,4 +80,3 @@ INSERT INTO Repositorio (id_framework, nome, url) VALUES
   ((SELECT id_framework FROM Framework WHERE nome = 'Django'), 'django',
    'https://github.com/django/django.git');
 ```
-Rode o Passo 2 (e 3) novamente e a comparação aparecerá automaticamente.
