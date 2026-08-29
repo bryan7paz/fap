@@ -1,0 +1,11 @@
+/* FAP - estilos básicos */
+#grafico-commits,
+#grafico-churn,
+#grafico-ttfr {
+    width: 100%;
+    min-height: 380px;
+}
+
+.card-header {
+    font-weight: 600;
+}

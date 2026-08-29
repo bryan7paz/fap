@@ -1,0 +1,16 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+# Virtual environment
+fap_env/
+# Environment variables
+.env
+# Data directory (clones and CSVs)
+data/
+# IDE
+.vscode/
+.idea/
+# OS
+.DS_Thumbs.db
