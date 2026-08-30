@@ -46,9 +46,13 @@ def primeiro_comentario(owner, nome_repo, numero):
     return data[0]["created_at"] if data else None
 
 
-def calcular_ttfr_medio(owner, nome_repo, issues):
-    """Média (em dias) do tempo entre abertura e primeira resposta."""
-    totais_dias, n = [], 0
+def calcular_ttfr_mediano(owner, nome_repo, issues):
+    """Mediana (em dias) do tempo entre abertura e primeira resposta.
+
+    A mediana é preferida à média por mitigar o peso de outliers
+    (issues esquecidas por longos períodos).
+    """
+    totais_dias = []
     for iss in issues:
         if "pull_request" in iss:  # ignora PRs (a API mistura os dois)
             continue
@@ -58,8 +62,9 @@ def calcular_ttfr_medio(owner, nome_repo, issues):
         criada = pd.Timestamp(iss["created_at"])
         diff = pd.Timestamp(primeiro) - criada
         totais_dias.append(diff.total_seconds() / 86400.0)
-        n += 1
-    return (sum(totais_dias) / n) if n else None, n
+    if not totais_dias:
+        return None, 0
+    return float(pd.Series(totais_dias).median()), len(totais_dias)
 
 
 def executar():
@@ -78,14 +83,14 @@ def executar():
         print(f"[GitHub] Processando {owner}/{nome_repo}")
 
         issues = buscar_issues(owner, nome_repo, desde)
-        ttfr_medio, qtd = calcular_ttfr_medio(owner, nome_repo, issues)
+        ttfr_mediano, qtd = calcular_ttfr_mediano(owner, nome_repo, issues)
 
         linhas.append(
             {
                 "id_repositorio": repo.id_repositorio,
                 "periodo_inicio": inicio_periodo.date(),
                 "periodo_fim": pd.Timestamp(hoje).date(),
-                "ttfr_medio_dias": ttfr_medio,
+                "ttfr_medio_dias": ttfr_mediano,
                 "issues_abertas": sum(1 for i in issues if i["state"] == "open"),
                 "issues_fechadas": sum(1 for i in issues if i["state"] == "closed"),
                 "contribuidores_ativos": qtd,

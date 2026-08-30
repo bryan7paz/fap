@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS Metrica_Sustentabilidade (
     periodo_inicio  DATE NOT NULL,
     periodo_fim     DATE NOT NULL,
     ttfr_medio_dias DOUBLE PRECISION,
+    bus_factor      INTEGER,
+    churn_relativo  DOUBLE PRECISION,
     issues_abertas  INTEGER,
     issues_fechadas INTEGER,
     contribuidores_ativos INTEGER,

@@ -1,10 +1,18 @@
 """Conexão com o PostgreSQL e helpers de carga (ETL)."""
+import math
 from contextlib import contextmanager
 
 import pandas as pd
 import psycopg2
 
 from config import DB_CONFIG
+
+
+def _clean(valor):
+    """Converte valores inválidos (NaN) em None para gravação no banco."""
+    if valor is None or (isinstance(valor, float) and math.isnan(valor)):
+        return None
+    return valor
 
 
 def get_connection():
@@ -56,7 +64,7 @@ def insert_metrica_diaria(df: pd.DataFrame):
 
 def insert_metrica_sustentabilidade(df: pd.DataFrame):
     """
-    Insere métricas de sustentabilidade a partir de um DataFrame.
+    Insere métricas sociais (TTFR, issues, contribuidores) a partir de um DataFrame.
     Espera colunas: id_repositorio, periodo_inicio, periodo_fim,
                     ttfr_medio_dias, issues_abertas, issues_fechadas,
                     contribuidores_ativos
@@ -86,6 +94,35 @@ def insert_metrica_sustentabilidade(df: pd.DataFrame):
         with conn.cursor() as cur:
             cur.executemany(sql, rows)
     print(f"[ETL] {len(rows)} linhas inseridas/atualizadas em Metrica_Sustentabilidade.")
+
+
+def insert_metrica_sustentabilidade_commits(df: pd.DataFrame):
+    """
+    Insere métricas derivadas dos commits (bus_factor, churn_relativo)
+    a partir de um DataFrame. Espera colunas: id_repositorio,
+    periodo_inicio, periodo_fim, bus_factor, churn_relativo.
+    """
+    sql = """
+        INSERT INTO Metrica_Sustentabilidade
+            (id_repositorio, periodo_inicio, periodo_fim,
+             bus_factor, churn_relativo)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (id_repositorio, periodo_inicio, periodo_fim)
+        DO UPDATE SET
+            bus_factor = EXCLUDED.bus_factor,
+            churn_relativo = EXCLUDED.churn_relativo
+    """
+    rows = [
+        (
+            r.id_repositorio, r.periodo_inicio, r.periodo_fim,
+            _clean(r.bus_factor), _clean(r.churn_relativo),
+        )
+        for r in df.itertuples()
+    ]
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(sql, rows)
+    print(f"[ETL] {len(rows)} linhas inseridas/atualizadas em Metrica_Sustentabilidade (commits).")
 
 
 def get_repositorios():

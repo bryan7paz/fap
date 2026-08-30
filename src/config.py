@@ -1,6 +1,13 @@
 import os
+import warnings
 from pathlib import Path
 from dotenv import load_dotenv
+
+warnings.filterwarnings(
+    "ignore",
+    message="pandas only supports SQLAlchemy connectable",
+    category=UserWarning,
+)
 
 PROJ_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJ_ROOT / ".env")
