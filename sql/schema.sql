@@ -52,15 +52,38 @@ CREATE INDEX IF NOT EXISTS idx_metrica_diaria_rep ON Metrica_Diaria (id_reposito
 CREATE INDEX IF NOT EXISTS idx_metrica_diaria_dia ON Metrica_Diaria (dia);
 
 -- ============================================================
--- DADOS INICIAIS: ecossistema Flask
+-- DADOS INICIAIS: ecossistemas de frameworks (comparação relacional)
 -- ============================================================
-INSERT INTO Framework (nome, linguagem) VALUES ('Flask', 'Python');
 
--- id do Flask (para uso em consultas)
+-- Flask (micro: ecossistema distribuído)
+INSERT INTO Framework (nome, linguagem) VALUES ('Flask', 'Python')
+ON CONFLICT (nome) DO NOTHING;
+
 INSERT INTO Repositorio (id_framework, nome, url) VALUES
   ((SELECT id_framework FROM Framework WHERE nome = 'Flask'),
    'flask',     'https://github.com/pallets/flask.git'),
   ((SELECT id_framework FROM Framework WHERE nome = 'Flask'),
    'jinja',     'https://github.com/pallets/jinja.git'),
   ((SELECT id_framework FROM Framework WHERE nome = 'Flask'),
-   'werkzeug',  'https://github.com/pallets/werkzeug.git');
+   'werkzeug',  'https://github.com/pallets/werkzeug.git')
+ON CONFLICT (nome) DO NOTHING;
+
+-- Django (monolítico: ecossistema concentrado)
+INSERT INTO Framework (nome, linguagem) VALUES ('Django', 'Python')
+ON CONFLICT (nome) DO NOTHING;
+
+INSERT INTO Repositorio (id_framework, nome, url) VALUES
+  ((SELECT id_framework FROM Framework WHERE nome = 'Django'),
+   'django', 'https://github.com/django/django.git')
+ON CONFLICT (nome) DO NOTHING;
+
+-- FastAPI (assíncrono: ecossistema distribuído)
+INSERT INTO Framework (nome, linguagem) VALUES ('FastAPI', 'Python')
+ON CONFLICT (nome) DO NOTHING;
+
+INSERT INTO Repositorio (id_framework, nome, url) VALUES
+  ((SELECT id_framework FROM Framework WHERE nome = 'FastAPI'),
+   'fastapi',   'https://github.com/fastapi/fastapi.git'),
+  ((SELECT id_framework FROM Framework WHERE nome = 'FastAPI'),
+   'starlette', 'https://github.com/encode/starlette.git')
+ON CONFLICT (nome) DO NOTHING;
