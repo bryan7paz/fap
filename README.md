@@ -22,7 +22,7 @@ fap/
 ├── templates/index.html
 ├── static/
 │   ├── css/style.css
-│   └── js/main.jss
+│   └── js/main.js
 ```
 
 ## Requisitos

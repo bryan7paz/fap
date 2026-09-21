@@ -2,6 +2,12 @@
 const CORE = "#e8b15a";
 const PALETA = ["#e8b15a", "#54d6a0", "#6f9fff", "#d98cc8", "#f09a5a", "#7fd0d6"];
 
+function esc(str) {
+    const el = document.createElement("span");
+    el.textContent = str;
+    return el.innerHTML;
+}
+
 async function carregar(url) {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error("Falha em " + url);
@@ -53,7 +59,7 @@ function renderTable(itens) {
         tr.dataset.fw = r.framework;
         tr.innerHTML = `
             <td class="col-rank"><span class="rank-badge ${i < 3 ? "top" : ""}">${r.rank}</span></td>
-            <td><span class="fw-name"><span class="fw-bullet" style="background:${color}"></span>${r.framework}</span></td>
+            <td><span class="fw-name"><span class="fw-bullet" style="background:${color}"></span>${esc(r.framework)}</span></td>
             <td class="num"><span class="rating">${fmtPct(r.rating)}</span></td>
             <td class="num">${mudancaHtml(r.mudanca)}</td>
             <td class="num">${fmtNum(r.commits)}</td>
@@ -125,7 +131,7 @@ function renderTrend(itens) {
     // legenda custom
     const leg = document.getElementById("chart-legend");
     leg.innerHTML = itens.map((r, i) =>
-        `<span class="legend-item"><span class="legend-swatch" style="background:${PALETA[i % PALETA.length]}"></span>${r.framework}</span>`
+        `<span class="legend-item"><span class="legend-swatch" style="background:${PALETA[i % PALETA.length]}"></span>${esc(r.framework)}</span>`
     ).join("");
 }
 

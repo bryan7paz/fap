@@ -209,6 +209,17 @@ tr.expanded + .row-expand { display: table-row; }
 .foot { margin-top: 8px; color: var(--ink-faint); font-size: .8rem; font-family: var(--mono); }
 .foot p { margin: 0; }
 
+/* accessibility: focus styles */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.index-table tbody tr:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
 @media (max-width: 760px) {
     .index-table .col-trend, .index-table th.col-trend { display: none; }
     .panel-head { padding: 20px; }

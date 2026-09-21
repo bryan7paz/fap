@@ -1,4 +1,5 @@
 """Conexão com o PostgreSQL e helpers de carga (ETL)."""
+import logging
 import math
 from contextlib import contextmanager
 
@@ -6,6 +7,8 @@ import pandas as pd
 import psycopg2
 
 from config import DB_CONFIG
+
+log = logging.getLogger("fap.db")
 
 
 def _clean(valor):
@@ -59,7 +62,7 @@ def insert_metrica_diaria(df: pd.DataFrame):
     with connection() as conn:
         with conn.cursor() as cur:
             cur.executemany(sql, rows)
-    print(f"[ETL] {len(rows)} linhas inseridas/atualizadas em Metrica_Diaria.")
+    log.info("%d linhas inseridas/atualizadas em Metrica_Diaria.", len(rows))
 
 
 def insert_metrica_sustentabilidade(df: pd.DataFrame):
@@ -93,7 +96,7 @@ def insert_metrica_sustentabilidade(df: pd.DataFrame):
     with connection() as conn:
         with conn.cursor() as cur:
             cur.executemany(sql, rows)
-    print(f"[ETL] {len(rows)} linhas inseridas/atualizadas em Metrica_Sustentabilidade.")
+    log.info("%d linhas inseridas/atualizadas em Metrica_Sustentabilidade.", len(rows))
 
 
 def insert_metrica_sustentabilidade_commits(df: pd.DataFrame):
@@ -122,7 +125,7 @@ def insert_metrica_sustentabilidade_commits(df: pd.DataFrame):
     with connection() as conn:
         with conn.cursor() as cur:
             cur.executemany(sql, rows)
-    print(f"[ETL] {len(rows)} linhas inseridas/atualizadas em Metrica_Sustentabilidade (commits).")
+    log.info("%d linhas inseridas/atualizadas em Metrica_Sustentabilidade (commits).", len(rows))
 
 
 def get_repositorios():

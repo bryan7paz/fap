@@ -1,8 +1,7 @@
 """Métricas sociais via API do GitHub: TTFR e demais indicadores de sustentabilidade."""
-import sys
+import logging
 import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from urllib.parse import urlparse
 
 import requests
 import pandas as pd
@@ -10,20 +9,34 @@ import pandas as pd
 from config import GITHUB_TOKEN, MESES_ANALISE, PROJ_ROOT
 from database import get_repositorios, insert_metrica_sustentabilidade
 
+log = logging.getLogger("fap.github")
+
 API_BASE = "https://api.github.com"
 HEADERS = {"Accept": "application/vnd.github+json"}
 if GITHUB_TOKEN:
     HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+else:
+    log.warning("GITHUB_TOKEN não configurado — limite de 60 req/hora (não autenticado)")
 
 
 def _get(url, params=None):
     resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
+    if resp.status_code == 403 and "rate limit" in resp.text.lower():
+        log.error("Rate limit do GitHub atingido")
     resp.raise_for_status()
     return resp
 
 
+def _parse_owner_repo(url):
+    """Extrai (owner, repo) de forma segura a partir da URL."""
+    parsed = urlparse(url.rstrip("/").replace(".git", ""))
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if len(parts) < 2:
+        raise ValueError(f"URL de repositório inválida: {url}")
+    return parts[-2], parts[-1]
+
+
 def buscar_issues(owner, nome_repo, desde):
-    """Itera pelas issues criadas desde a data 'desde' (paginação)."""
     issues = []
     page = 1
     params = {"state": "all", "since": desde, "per_page": 100, "page": page}
@@ -38,7 +51,6 @@ def buscar_issues(owner, nome_repo, desde):
 
 
 def primeiro_comentario(owner, nome_repo, numero):
-    """Retorna o datetime do primeiro comentário da issue, ou None."""
     data = _get(
         f"{API_BASE}/repos/{owner}/{nome_repo}/issues/{numero}/comments",
         params={"per_page": 1},
@@ -47,14 +59,9 @@ def primeiro_comentario(owner, nome_repo, numero):
 
 
 def calcular_ttfr_mediano(owner, nome_repo, issues):
-    """Mediana (em dias) do tempo entre abertura e primeira resposta.
-
-    A mediana é preferida à média por mitigar o peso de outliers
-    (issues esquecidas por longos períodos).
-    """
     totais_dias = []
     for iss in issues:
-        if "pull_request" in iss:  # ignora PRs (a API mistura os dois)
+        if "pull_request" in iss:
             continue
         primeiro = primeiro_comentario(owner, nome_repo, iss["number"])
         if not primeiro:
@@ -72,15 +79,20 @@ def executar():
     if repos.empty:
         raise RuntimeError("Nenhum repositório cadastrado. Rode o schema.sql antes.")
 
+    os.makedirs(os.path.join(PROJ_ROOT, "data"), exist_ok=True)
+
     desde = (pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)).strftime("%Y-%m-%dT%H:%M:%SZ")
     hoje = pd.Timestamp.now().strftime("%Y-%m-%d")
     inicio_periodo = pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)
 
     linhas = []
     for repo in repos.itertuples():
-        owner, nome_repo = repo.url.rstrip("/").split("/")[-2:]
-        nome_repo = nome_repo.replace(".git", "")
-        print(f"[GitHub] Processando {owner}/{nome_repo}")
+        try:
+            owner, nome_repo = _parse_owner_repo(repo.url)
+        except ValueError as e:
+            log.warning("Pulando repo %s: %s", repo.nome, e)
+            continue
+        log.info("Processando %s/%s", owner, nome_repo)
 
         issues = buscar_issues(owner, nome_repo, desde)
         ttfr_mediano, qtd = calcular_ttfr_mediano(owner, nome_repo, issues)
@@ -103,7 +115,7 @@ def executar():
         index=False,
     )
     insert_metrica_sustentabilidade(df)
-    print("Passo 3 concluído.")
+    log.info("Passo 3 concluído.")
 
 
 if __name__ == "__main__":

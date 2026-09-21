@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS Repositorio (
     id_repositorio SERIAL PRIMARY KEY,
     id_framework   INTEGER NOT NULL REFERENCES Framework(id_framework) ON DELETE CASCADE,
     nome           VARCHAR(150) NOT NULL UNIQUE,
-    url            VARCHAR(300),
+    url            VARCHAR(300) NOT NULL,
     estrelas       INTEGER DEFAULT 0
 );
 
@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS Metrica_Diaria (
     autores_distintos INTEGER DEFAULT 0,
     lines_added    INTEGER DEFAULT 0,
     lines_deleted  INTEGER DEFAULT 0,
+    criado_em      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_rep_dia UNIQUE (id_repositorio, dia)
 );
 
@@ -44,12 +46,16 @@ CREATE TABLE IF NOT EXISTS Metrica_Sustentabilidade (
     issues_abertas  INTEGER,
     issues_fechadas INTEGER,
     contribuidores_ativos INTEGER,
+    criado_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_rep_periodo UNIQUE (id_repositorio, periodo_inicio, periodo_fim)
 );
 
 -- Índices para acelerar as consultas de agregação
 CREATE INDEX IF NOT EXISTS idx_metrica_diaria_rep ON Metrica_Diaria (id_repositorio);
 CREATE INDEX IF NOT EXISTS idx_metrica_diaria_dia ON Metrica_Diaria (dia);
+CREATE INDEX IF NOT EXISTS idx_sustentabilidade_rep ON Metrica_Sustentabilidade (id_repositorio);
+CREATE INDEX IF NOT EXISTS idx_repositorio_framework ON Repositorio (id_framework);
 
 -- ============================================================
 -- DADOS INICIAIS: ecossistemas de frameworks (comparação relacional)

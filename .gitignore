@@ -13,4 +13,5 @@ data/
 .vscode/
 .idea/
 # OS
-.DS_Thumbs.db
+.DS_Store
+Thumbs.db

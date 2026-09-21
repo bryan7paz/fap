@@ -1,9 +1,7 @@
 """Motor de coleta com PyDriller: code churn por dia carregado em Metrica_Diaria."""
-import subprocess
-import sys
+import logging
 import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import subprocess
 
 import pandas as pd
 from pydriller import Repository
@@ -14,6 +12,8 @@ from database import (
     insert_metrica_diaria,
     insert_metrica_sustentabilidade_commits,
 )
+
+log = logging.getLogger("fap.pydriller")
 
 CLONE_DIR = os.path.join(PROJ_ROOT, "data", "repos")
 
@@ -109,12 +109,15 @@ def executar():
     if repos.empty:
         raise RuntimeError("Nenhum repositório cadastrado no banco. Rode o schema.sql antes.")
 
+    os.makedirs(CLONE_DIR, exist_ok=True)
+    os.makedirs(os.path.join(PROJ_ROOT, "data"), exist_ok=True)
+
     inicio_periodo = pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)
     hoje = pd.Timestamp.now().date()
 
     metricas_periodo = []
     for repo in repos.itertuples():
-        print(f"[PyDriller] Clonando/analisando: {repo.url}")
+        log.info("Clonando/analisando: %s", repo.url)
         df = coletar_commits(repo.url)
         agregado = agregar_por_dia(df, repo.id_repositorio)
 
@@ -122,7 +125,7 @@ def executar():
             os.path.join(PROJ_ROOT, "data", f"commits_{repo.nome}.csv"),
             index=False,
         )
-        print(f"[PyDriller] {len(df)} commits extraídos para {repo.nome}")
+        log.info("%d commits extraídos para %s", len(df), repo.nome)
 
         if not agregado.empty:
             insert_metrica_diaria(agregado)
@@ -139,7 +142,7 @@ def executar():
         )
 
     insert_metrica_sustentabilidade_commits(pd.DataFrame(metricas_periodo))
-    print("Passo 2 concluído.")
+    log.info("Passo 2 concluído.")
 
 
 if __name__ == "__main__":
