@@ -48,7 +48,7 @@ function sparklineHTML(x, y, color) {
 function renderTable(itens) {
     const body = document.getElementById("index-body");
     if (!itens.length) {
-        body.innerHTML = '<tr class="loading-row"><td colspan="9">Sem dados. Rode a coleta e confira o banco.</td></tr>';
+        body.innerHTML = '<tr class="loading-row"><td colspan="11">Sem dados. Rode a coleta e confira o banco.</td></tr>';
         return;
     }
     body.innerHTML = "";
@@ -63,9 +63,11 @@ function renderTable(itens) {
             <td class="num"><span class="rating">${fmtPct(r.rating)}</span></td>
             <td class="num">${mudancaHtml(r.mudanca)}</td>
             <td class="num">${fmtNum(r.commits)}</td>
+            <td class="num">${fmtNum(r.lines_added)}</td>
             <td class="num">${r.bus_factor ?? "—"}</td>
             <td class="num">${r.ttfr != null ? r.ttfr + "d" : "—"}</td>
             <td class="num">${r.churn_relativo != null ? r.churn_relativo.toFixed(3) : "—"}</td>
+            <td class="num">${r.cadencia_releases != null ? r.cadencia_releases.toFixed(2) : "—"}</td>
             <td class="col-trend">${sparklineHTML(r.series.x, r.series.y, color)}</td>
         `;
 
@@ -73,13 +75,15 @@ function renderTable(itens) {
         const expand = document.createElement("tr");
         expand.className = "row-expand";
         expand.innerHTML = `
-            <td colspan="9">
+            <td colspan="11">
                 <div class="expand-inner">
                     <div class="detail"><h4>Rating</h4><p>${fmtPct(r.rating)} do total de commits no período</p></div>
                     <div class="detail"><h4>Commits (6 meses)</h4><p>${fmtNum(r.commits)} · somatório do ecossistema</p></div>
+                    <div class="detail"><h4>Linhas adicionadas</h4><p>${fmtNum(r.lines_added)} · total no período</p></div>
                     <div class="detail"><h4>Bus Factor</h4><p>${r.bus_factor ?? "—"} · repo principal (50% das contribuições)</p></div>
                     <div class="detail"><h4>TTFR (mediana)</h4><p>${r.ttfr != null ? r.ttfr + " dias" : "sem issues no período"}</p></div>
                     <div class="detail"><h4>Churn relativo</h4><p>${r.churn_relativo != null ? r.churn_relativo.toFixed(3) + " (churn / LOC)" : "—"}</p></div>
+                    <div class="detail"><h4>Cadência de Releases</h4><p>${r.cadencia_releases != null ? r.cadencia_releases.toFixed(2) + " releases/mês" : "—"}</p></div>
                 </div>
             </td>`;
 
@@ -144,7 +148,7 @@ async function init() {
     } catch (e) {
         console.error(e);
         document.getElementById("index-body").innerHTML =
-            '<tr class="loading-row"><td colspan="9">Erro ao carregar dados. Rode a coleta e confira o banco.</td></tr>';
+            '<tr class="loading-row"><td colspan="11">Erro ao carregar dados. Rode a coleta e confira o banco.</td></tr>';
     }
 }
 

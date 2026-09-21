@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS Metrica_Sustentabilidade (
     issues_abertas  INTEGER,
     issues_fechadas INTEGER,
     contribuidores_ativos INTEGER,
+    cadencia_releases DOUBLE PRECISION,
     criado_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     atualizado_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_rep_periodo UNIQUE (id_repositorio, periodo_inicio, periodo_fim)

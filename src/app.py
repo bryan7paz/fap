@@ -77,9 +77,20 @@ def api_framework_ranking():
             sust = pd.read_sql(
                 """
                 SELECT r.nome AS repositorio, ms.bus_factor,
-                       ms.churn_relativo, ms.ttfr_medio_dias
+                       ms.churn_relativo, ms.ttfr_medio_dias,
+                       ms.cadencia_releases
                 FROM Metrica_Sustentabilidade ms
                 JOIN Repositorio r ON r.id_repositorio = ms.id_repositorio
+                """,
+                conn,
+            )
+            linhas_add = pd.read_sql(
+                """
+                SELECT f.nome AS framework, SUM(md.lines_added) AS lines_added
+                FROM Metrica_Diaria md
+                JOIN Repositorio r ON r.id_repositorio = md.id_repositorio
+                JOIN Framework f ON f.id_framework = r.id_framework
+                GROUP BY f.nome
                 """,
                 conn,
             )
@@ -100,16 +111,20 @@ def api_framework_ranking():
             grupo_repos = commits_repo[commits_repo["framework"] == nome]
             primario = grupo_repos.sort_values("commits", ascending=False)["repositorio"].iloc[0] if not grupo_repos.empty else None
             det = sust[sust["repositorio"] == primario].iloc[0] if primario and not sust[sust["repositorio"] == primario].empty else None
+            la = linhas_add[linhas_add["framework"] == nome]
+            lines_added = int(la["lines_added"].iloc[0]) if not la.empty else 0
 
             ranking.append(
                 {
                     "framework": nome,
                     "commits": commits_total,
+                    "lines_added": lines_added,
                     "rating": (commits_total / total * 100) if total else 0,
                     "mudanca": round(mudanca, 1),
                     "bus_factor": _int(det["bus_factor"] if det is not None else None),
                     "ttfr": _num(det["ttfr_medio_dias"] if det is not None else None),
                     "churn_relativo": _num(det["churn_relativo"] if det is not None else None),
+                    "cadencia_releases": _num(det["cadencia_releases"] if det is not None else None),
                     "series": {"x": dias, "y": vals},
                 }
             )

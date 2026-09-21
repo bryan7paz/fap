@@ -74,6 +74,25 @@ def calcular_ttfr_mediano(owner, nome_repo, issues):
     return float(pd.Series(totais_dias).median()), len(totais_dias)
 
 
+def buscar_releases(owner, nome_repo, desde):
+    """Conta releases publicadas desde a data 'desde'."""
+    page = 1
+    count = 0
+    params = {"per_page": 100, "page": page}
+    while True:
+        data = _get(f"{API_BASE}/repos/{owner}/{nome_repo}/releases", params).json()
+        if not data:
+            break
+        for rel in data:
+            if rel.get("published_at") and rel["published_at"] >= desde:
+                count += 1
+        if len(data) < 100:
+            break
+        page += 1
+        params["page"] = page
+    return count
+
+
 def executar():
     repos = get_repositorios()
     if repos.empty:
@@ -96,6 +115,8 @@ def executar():
 
         issues = buscar_issues(owner, nome_repo, desde)
         ttfr_mediano, qtd = calcular_ttfr_mediano(owner, nome_repo, issues)
+        releases = buscar_releases(owner, nome_repo, desde)
+        cadencia = releases / MESES_ANALISE if MESES_ANALISE else None
 
         linhas.append(
             {
@@ -106,6 +127,7 @@ def executar():
                 "issues_abertas": sum(1 for i in issues if i["state"] == "open"),
                 "issues_fechadas": sum(1 for i in issues if i["state"] == "closed"),
                 "contribuidores_ativos": qtd,
+                "cadencia_releases": cadencia,
             }
         )
 

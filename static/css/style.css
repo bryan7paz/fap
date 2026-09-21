@@ -222,6 +222,7 @@ tr.expanded + .row-expand { display: table-row; }
 
 @media (max-width: 760px) {
     .index-table .col-trend, .index-table th.col-trend { display: none; }
+    .index-table .col-hide-sm, .index-table th.col-hide-sm { display: none; }
     .panel-head { padding: 20px; }
     .hero-title { font-size: 2.1rem; }
 }

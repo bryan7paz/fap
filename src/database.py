@@ -67,29 +67,30 @@ def insert_metrica_diaria(df: pd.DataFrame):
 
 def insert_metrica_sustentabilidade(df: pd.DataFrame):
     """
-    Insere métricas sociais (TTFR, issues, contribuidores) a partir de um DataFrame.
+    Insere métricas sociais (TTFR, issues, contribuidores, cadência) a partir de um DataFrame.
     Espera colunas: id_repositorio, periodo_inicio, periodo_fim,
                     ttfr_medio_dias, issues_abertas, issues_fechadas,
-                    contribuidores_ativos
+                    contribuidores_ativos, cadencia_releases
     """
     sql = """
         INSERT INTO Metrica_Sustentabilidade
             (id_repositorio, periodo_inicio, periodo_fim,
              ttfr_medio_dias, issues_abertas, issues_fechadas,
-             contribuidores_ativos)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+             contribuidores_ativos, cadencia_releases)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (id_repositorio, periodo_inicio, periodo_fim)
         DO UPDATE SET
             ttfr_medio_dias = EXCLUDED.ttfr_medio_dias,
             issues_abertas = EXCLUDED.issues_abertas,
             issues_fechadas = EXCLUDED.issues_fechadas,
-            contribuidores_ativos = EXCLUDED.contribuidores_ativos
+            contribuidores_ativos = EXCLUDED.contribuidores_ativos,
+            cadencia_releases = EXCLUDED.cadencia_releases
     """
     rows = [
         (
             r.id_repositorio, r.periodo_inicio, r.periodo_fim,
             r.ttfr_medio_dias, r.issues_abertas, r.issues_fechadas,
-            r.contribuidores_ativos,
+            r.contribuidores_ativos, _clean(r.cadencia_releases),
         )
         for r in df.itertuples()
     ]
