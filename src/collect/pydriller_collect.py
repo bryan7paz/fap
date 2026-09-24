@@ -12,6 +12,7 @@ from database import (
     insert_metrica_diaria,
     insert_metrica_sustentabilidade_commits,
 )
+import status
 
 log = logging.getLogger("fap.pydriller")
 
@@ -116,8 +117,18 @@ def executar():
     hoje = pd.Timestamp.now().date()
 
     metricas_periodo = []
-    for repo in repos.itertuples():
+    total = len(repos)
+    status.atualizar(
+        estado="coletando",
+        etapa="pydriller",
+        total_repos=total,
+        repos_concluidos=0,
+        repo_atual=None,
+        mensagem="Analisando commits com PyDriller.",
+    )
+    for i, repo in enumerate(repos.itertuples()):
         log.info("Clonando/analisando: %s", repo.url)
+        status.atualizar(repo_atual=repo.nome, repos_concluidos=i)
         df = coletar_commits(repo.url)
         agregado = agregar_por_dia(df, repo.id_repositorio)
 
@@ -140,6 +151,7 @@ def executar():
                 "churn_relativo": calcular_churn_relativo(df, caminho_repo),
             }
         )
+        status.atualizar(repos_concluidos=i + 1)
 
     insert_metrica_sustentabilidade_commits(pd.DataFrame(metricas_periodo))
     log.info("Passo 2 concluído.")

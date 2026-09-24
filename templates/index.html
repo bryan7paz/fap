@@ -6,23 +6,22 @@
     <title>FAP · Framework Sustainability Index</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Spectral:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
 <body>
-    <div class="grain" aria-hidden="true"></div>
 
     <header class="topbar">
         <a class="brand" href="/">
             <span class="brand-mark">FAP</span>
             <span class="brand-text">
                 <strong>Framework Analytics Platform</strong>
-                <em>Framework Sustainability Index</em>
+                <span>Framework Sustainability Index</span>
             </span>
         </a>
         <div class="topbar-meta">
-            <span class="live-dot"></span>
-            <span class="live-label">coleta automática ativa</span>
+            <span class="live-dot" aria-hidden="true"></span>
+            <span id="coleta-badge">verificando coleta…</span>
         </div>
     </header>
 
@@ -30,56 +29,71 @@
 
         <section class="hero">
             <p class="eyebrow">Mining Software Repositories · janela de 6 meses</p>
-            <h1 class="hero-title">Sustentabilidade de <span class="accent">Frameworks</span>,<br>lida em evidência.</h1>
+            <h1 class="hero-title">Sustentabilidade de <span class="accent">Frameworks</span>, lida em evidência.</h1>
             <p class="hero-sub">
-             Índice baseado em atividade de desenvolvimento, churn de código, concentração de conhecimento e responsividade da comunidade. As posições são determinadas quantitativamente a partir dos dados analisados, não por opinião subjetiva.
-
+                Índice baseado em atividade de desenvolvimento, churn de código, concentração de conhecimento e responsividade da comunidade. As posições são determinadas quantitativamente a partir dos dados analisados, não por opinião subjetiva.
             </p>
         </section>
 
-        <section class="panel chart-panel">
+        <section class="panel progress-panel" id="progress-panel" hidden>
             <div class="panel-head">
                 <div>
-                    <h2 class="panel-title">Tendência de atividade</h2>
-                    <p class="panel-desc">Commits por dia · atividade relativa de cada framework (% do próprio pico)</p>
+                    <h2 class="panel-title">Coleta em andamento</h2>
+                    <p class="panel-desc" id="progress-msg">Preparando…</p>
                 </div>
-                <div class="legend" id="chart-legend"></div>
+                <span class="table-hint" id="progress-step">—</span>
             </div>
-            <div id="chart-trend" class="chart"></div>
+            <div class="progress-body">
+                <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-track">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <p class="progress-meta">
+                    <span id="progress-repo">—</span>
+                    <span id="progress-count">0 / 0</span>
+                </p>
+            </div>
         </section>
 
-        <section class="panel table-panel">
-            <div class="panel-head">
-                <div>
-                    <h2 class="panel-title">Índice de Sustentabilidade</h2>
-                    <p class="panel-desc">Ranking dos frameworks · métricas consolidadas do ecossistema</p>
+        <div id="dashboard" hidden>
+            <section class="panel chart-panel">
+                <div class="panel-head">
+                    <div>
+                        <h2 class="panel-title">Tendência de atividade</h2>
+                        <p class="panel-desc">Commits por dia · atividade relativa de cada framework (% do próprio pico)</p>
+                    </div>
+                    <div class="legend" id="chart-legend"></div>
                 </div>
-                <span class="table-hint">clique em uma linha para expandir</span>
-            </div>
+                <div id="chart-trend" class="chart"></div>
+            </section>
 
-            <div class="table-wrap">
-                <table class="index-table" id="index-table">
-                    <thead>
-                        <tr>
-                            <th class="col-rank">Rank</th>
-                            <th>Framework</th>
-                            <th class="num col-hide-sm">Rating</th>
-                            <th class="num col-hide-sm">Mudança</th>
-                            <th class="num">Commits</th>
-                            <th class="num">Linhas add</th>
-                            <th class="num">Bus Factor</th>
-                            <th class="num">TTFR</th>
-                            <th class="num">Churn rel.</th>
-                            <th class="num">Releases/mês</th>
-                            <th class="col-trend">Tendência</th>
-                        </tr>
-                    </thead>
-                    <tbody id="index-body">
-                        <tr class="loading-row"><td colspan="11">Carregando índice…</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+            <section class="panel table-panel">
+                <div class="panel-head">
+                    <div>
+                        <h2 class="panel-title">Índice de Sustentabilidade</h2>
+                        <p class="panel-desc">Ranking dos frameworks · métricas consolidadas do ecossistema</p>
+                    </div>
+                    <span class="table-hint">clique em uma linha para expandir</span>
+                </div>
+
+                <div class="table-wrap">
+                    <table class="index-table" id="index-table">
+                        <thead>
+                            <tr>
+                                <th class="col-rank">Rank</th>
+                                <th>Framework</th>
+                                <th class="num">Commits</th>
+                                <th class="num">Bus Factor</th>
+                                <th class="num">TTFR</th>
+                                <th class="col-trend">Tendência</th>
+                            </tr>
+                        </thead>
+                        <tbody id="index-body">
+                            <tr class="loading-row"><td colspan="6">Carregando índice…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
 
         <footer class="foot">
             <p>FAP · dados públicos do GitHub via PyDriller e API REST · consulte a metodologia para limiares e definições.</p>
@@ -87,7 +101,7 @@
 
     </main>
 
-    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" integrity="sha384-/0254266402360DC5A60A6CCF25B00ACBCE70C5FD2BCC16BD63719AEF3A949309AD16E3464074BCC7084BA59D46B98BB" crossorigin="anonymous"></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

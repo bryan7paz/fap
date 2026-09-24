@@ -1,6 +1,7 @@
 """Métricas sociais via API do GitHub: TTFR e demais indicadores de sustentabilidade."""
 import logging
 import os
+import time
 from urllib.parse import urlparse
 
 import requests
@@ -8,6 +9,7 @@ import pandas as pd
 
 from config import GITHUB_TOKEN, MESES_ANALISE, PROJ_ROOT
 from database import get_repositorios, insert_metrica_sustentabilidade
+import status
 
 log = logging.getLogger("fap.github")
 
@@ -19,10 +21,30 @@ else:
     log.warning("GITHUB_TOKEN não configurado — limite de 60 req/hora (não autenticado)")
 
 
-def _get(url, params=None):
-    resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
-    if resp.status_code == 403 and "rate limit" in resp.text.lower():
-        log.error("Rate limit do GitHub atingido")
+def _get(url, params=None, tentativas=5):
+    """GET com retry exponencial para rate limit secundário e conexões derrubadas."""
+    for t in range(tentativas):
+        try:
+            resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
+        except requests.exceptions.RequestException as e:
+            if t == tentativas - 1:
+                raise
+            espera = 2 ** (t + 1)
+            log.warning("Conexão falhou (%s); aguardando %ss", e.__class__.__name__, espera)
+            time.sleep(espera)
+            continue
+        if resp.status_code in (403, 429) and "rate limit" in resp.text.lower():
+            espera = int(resp.headers.get("Retry-After", 2 ** (t + 3)))
+            log.warning("Rate limit; aguardando %ss", espera)
+            time.sleep(espera)
+            continue
+        if resp.status_code in (403, 429, 502, 503) and t < tentativas - 1:
+            espera = 2 ** (t + 1)
+            log.warning("HTTP %d; aguardando %ss", resp.status_code, espera)
+            time.sleep(espera)
+            continue
+        resp.raise_for_status()
+        return resp
     resp.raise_for_status()
     return resp
 
@@ -50,12 +72,36 @@ def buscar_issues(owner, nome_repo, desde):
     return issues
 
 
-def primeiro_comentario(owner, nome_repo, numero):
-    data = _get(
-        f"{API_BASE}/repos/{owner}/{nome_repo}/issues/{numero}/comments",
-        params={"per_page": 1},
-    ).json()
-    return data[0]["created_at"] if data else None
+def _eh_bot(user):
+    """Identifica contas automatizadas (bots) no GitHub."""
+    login = (user.get("login") or "").lower()
+    return (
+        user.get("type") == "Bot"
+        or login.endswith("[bot]")
+        or login.endswith("-bot")
+    )
+
+
+def primeiro_comentario_humano(owner, nome_repo, numero):
+    """Data do primeiro comentário feito por um humano (ignora bots).
+
+    Percorre as páginas de comentários até encontrar uma resposta não-bot;
+    retorna None se não houver resposta humana.
+    """
+    page = 1
+    while True:
+        data = _get(
+            f"{API_BASE}/repos/{owner}/{nome_repo}/issues/{numero}/comments",
+            params={"per_page": 100, "page": page},
+        ).json()
+        if not data:
+            return None
+        for c in data:
+            if not _eh_bot(c.get("user") or {}):
+                return c["created_at"]
+        if len(data) < 100:
+            return None
+        page += 1
 
 
 def calcular_ttfr_mediano(owner, nome_repo, issues):
@@ -63,7 +109,7 @@ def calcular_ttfr_mediano(owner, nome_repo, issues):
     for iss in issues:
         if "pull_request" in iss:
             continue
-        primeiro = primeiro_comentario(owner, nome_repo, iss["number"])
+        primeiro = primeiro_comentario_humano(owner, nome_repo, iss["number"])
         if not primeiro:
             continue
         criada = pd.Timestamp(iss["created_at"])
@@ -105,13 +151,24 @@ def executar():
     inicio_periodo = pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)
 
     linhas = []
-    for repo in repos.itertuples():
+    total = len(repos)
+    status.atualizar(
+        estado="coletando",
+        etapa="github",
+        total_repos=total,
+        repos_concluidos=0,
+        repo_atual=None,
+        mensagem="Consultando API do GitHub.",
+    )
+    for i, repo in enumerate(repos.itertuples()):
         try:
             owner, nome_repo = _parse_owner_repo(repo.url)
         except ValueError as e:
             log.warning("Pulando repo %s: %s", repo.nome, e)
+            status.atualizar(repos_concluidos=i + 1)
             continue
         log.info("Processando %s/%s", owner, nome_repo)
+        status.atualizar(repo_atual=repo.nome, repos_concluidos=i)
 
         issues = buscar_issues(owner, nome_repo, desde)
         ttfr_mediano, qtd = calcular_ttfr_mediano(owner, nome_repo, issues)
@@ -130,6 +187,7 @@ def executar():
                 "cadencia_releases": cadencia,
             }
         )
+        status.atualizar(repos_concluidos=i + 1)
 
     df = pd.DataFrame(linhas)
     df.to_csv(

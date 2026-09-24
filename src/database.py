@@ -6,9 +6,42 @@ from contextlib import contextmanager
 import pandas as pd
 import psycopg2
 
-from config import DB_CONFIG
+from config import DB_CONFIG, PROJ_ROOT
 
 log = logging.getLogger("fap.db")
+
+
+def init_schema():
+    """Executa sql/schema.sql (idempotente): garante tabelas, índices e seed."""
+    schema_path = PROJ_ROOT / "sql" / "schema.sql"
+    with open(schema_path, encoding="utf-8") as f:
+        sql = f.read()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+        conn.commit()
+    finally:
+        conn.close()
+    log.info("Schema aplicado (%s).", schema_path)
+
+
+def coleta_pendente():
+    """True se algum repositório ainda não tem métricas de sustentabilidade.
+
+    Usa Metrica_Sustentabilidade (e não Metrica_Diaria) porque um repo sem
+    commits na janela (ex.: jinja) nunca terá linhas diárias, mas ainda assim
+    é processado pelos coletores.
+    """
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(DISTINCT id_repositorio) FROM Metrica_Sustentabilidade"
+            )
+            cobertos = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM Repositorio")
+            total = cur.fetchone()[0]
+    return cobertos < total
 
 
 def _clean(valor):
@@ -89,7 +122,7 @@ def insert_metrica_sustentabilidade(df: pd.DataFrame):
     rows = [
         (
             r.id_repositorio, r.periodo_inicio, r.periodo_fim,
-            r.ttfr_medio_dias, r.issues_abertas, r.issues_fechadas,
+            _clean(r.ttfr_medio_dias), r.issues_abertas, r.issues_fechadas,
             r.contribuidores_ativos, _clean(r.cadencia_releases),
         )
         for r in df.itertuples()

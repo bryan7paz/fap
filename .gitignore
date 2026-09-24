@@ -9,6 +9,10 @@ fap_env/
 .env
 # Data directory (clones and CSVs)
 data/
+# Logs
+logs_app.log
+logs_app_err.log
+*.log
 # IDE
 .vscode/
 .idea/
