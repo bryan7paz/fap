@@ -9,6 +9,7 @@ from pydriller import Repository
 from config import MESES_ANALISE, PROJ_ROOT
 from database import (
     get_repositorios,
+    insert_metrica_autor_mensal,
     insert_metrica_diaria,
     insert_metrica_sustentabilidade_commits,
 )
@@ -59,6 +60,16 @@ def agregar_por_dia(df: pd.DataFrame, id_repositorio: int) -> pd.DataFrame:
     return g
 
 
+def agregar_por_mes_autor(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrupa commits por mês (primeiro dia) e autor — base da curva de concentração."""
+    if df.empty:
+        return pd.DataFrame(columns=["mes", "autor", "commits"])
+    tmp = df.copy()
+    tmp["mes"] = pd.to_datetime(tmp["dia"]).dt.to_period("M").dt.start_time.dt.date
+    g = tmp.groupby(["mes", "autor"]).size().reset_index(name="commits")
+    return g
+
+
 def calcular_bus_factor(df: pd.DataFrame):
     """Menor k tal que a soma das k maiores contribuições > 50% do total."""
     if df.empty:
@@ -105,10 +116,12 @@ def calcular_churn_relativo(df: pd.DataFrame, caminho_repo: str):
     return (churn / loc) if loc else None
 
 
-def executar():
-    repos = get_repositorios()
+def executar(ids=None):
+    """Coleta PyDriller para todos os repositórios ou apenas os informados em `ids`."""
+    repos = get_repositorios(ids)
     if repos.empty:
-        raise RuntimeError("Nenhum repositório cadastrado no banco. Rode o schema.sql antes.")
+        log.warning("Nenhum repositório para coletar (ids=%s).", ids)
+        return
 
     os.makedirs(CLONE_DIR, exist_ok=True)
     os.makedirs(os.path.join(PROJ_ROOT, "data"), exist_ok=True)
@@ -140,6 +153,10 @@ def executar():
 
         if not agregado.empty:
             insert_metrica_diaria(agregado)
+
+        por_mes = agregar_por_mes_autor(df)
+        insert_metrica_autor_mensal(por_mes, repo.id_repositorio,
+                                    inicio_periodo.date())
 
         caminho_repo = os.path.join(CLONE_DIR, repo.nome)
         metricas_periodo.append(

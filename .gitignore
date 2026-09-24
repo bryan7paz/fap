@@ -19,3 +19,4 @@ logs_app_err.log
 # OS
 .DS_Store
 Thumbs.db
+_shots/

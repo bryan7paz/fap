@@ -12,14 +12,21 @@ log = logging.getLogger("fap.db")
 
 
 def init_schema():
-    """Executa sql/schema.sql (idempotente): garante tabelas, índices e seed."""
+    """Executa sql/schema.sql (idempotente) + migrações para bancos antigos."""
     schema_path = PROJ_ROOT / "sql" / "schema.sql"
     with open(schema_path, encoding="utf-8") as f:
         sql = f.read()
+    migracoes = [
+        # bancos criados antes do pivot: Repositorio exigia framework
+        "ALTER TABLE Repositorio ALTER COLUMN id_framework DROP NOT NULL",
+        "ALTER TABLE Repositorio ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP",
+    ]
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(sql)
+            for m in migracoes:
+                cur.execute(m)
         conn.commit()
     finally:
         conn.close()
@@ -27,21 +34,37 @@ def init_schema():
 
 
 def coleta_pendente():
-    """True se algum repositório ainda não tem métricas de sustentabilidade.
+    """True se algum repositório ainda não tem métricas de sustentabilidade."""
+    return bool(repositorios_pendentes())
 
-    Usa Metrica_Sustentabilidade (e não Metrica_Diaria) porque um repo sem
-    commits na janela (ex.: jinja) nunca terá linhas diárias, mas ainda assim
-    é processado pelos coletores.
-    """
+
+def repositorios_pendentes():
+    """Ids dos repositórios vinculados a usuários ainda sem coleta concluída."""
     with connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(DISTINCT id_repositorio) FROM Metrica_Sustentabilidade"
+                """
+                SELECT DISTINCT r.id_repositorio
+                FROM Repositorio r
+                JOIN Usuario_Repositorio ur USING (id_repositorio)
+                WHERE r.atualizado_em IS NULL
+                ORDER BY r.id_repositorio
+                """
             )
-            cobertos = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM Repositorio")
-            total = cur.fetchone()[0]
-    return cobertos < total
+            return [row[0] for row in cur.fetchall()]
+
+
+def marcar_coletado(id_repositorios):
+    """Registra a conclusão da coleta para os repositórios informados."""
+    if not id_repositorios:
+        return
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE Repositorio SET atualizado_em = CURRENT_TIMESTAMP "
+                "WHERE id_repositorio IN %s",
+                (tuple(id_repositorios),),
+            )
 
 
 def _clean(valor):
@@ -68,12 +91,145 @@ def connection():
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Usuários (OAuth GitHub)
+# ---------------------------------------------------------------------------
+
+def upsert_usuario(github_id, login, nome=None, avatar_url=None, access_token=None):
+    """Cria ou atualiza o usuário pelo github_id e retorna o id_usuario."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO Usuario (github_id, login, nome, avatar_url, access_token)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (github_id) DO UPDATE SET
+                    login = EXCLUDED.login,
+                    nome = EXCLUDED.nome,
+                    avatar_url = EXCLUDED.avatar_url,
+                    access_token = EXCLUDED.access_token
+                RETURNING id_usuario
+                """,
+                (github_id, login, nome, avatar_url, access_token),
+            )
+            return cur.fetchone()[0]
+
+
+def buscar_usuario(id_usuario):
+    """Dict do usuário ou None."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id_usuario, github_id, login, nome, avatar_url "
+                "FROM Usuario WHERE id_usuario = %s",
+                (id_usuario,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = ["id_usuario", "github_id", "login", "nome", "avatar_url"]
+            return dict(zip(cols, row))
+
+
+# ---------------------------------------------------------------------------
+# Repositórios e vínculo com usuário
+# ---------------------------------------------------------------------------
+
+def upsert_repositorio(nome, url):
+    """Garante que o repositório existe (chave: nome) e retorna o id."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO Repositorio (nome, url) VALUES (%s, %s)
+                ON CONFLICT (nome) DO UPDATE SET url = EXCLUDED.url
+                RETURNING id_repositorio
+                """,
+                (nome, url),
+            )
+            return cur.fetchone()[0]
+
+
+def link_usuario_repositorio(id_usuario, id_repositorio, nome_exibicao=None):
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO Usuario_Repositorio (id_usuario, id_repositorio, nome_exibicao)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (id_usuario, id_repositorio)
+                DO UPDATE SET nome_exibicao = EXCLUDED.nome_exibicao
+                """,
+                (id_usuario, id_repositorio, nome_exibicao),
+            )
+
+
+def deslinkar_usuario_repositorio(id_usuario, id_repositorio):
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM Usuario_Repositorio "
+                "WHERE id_usuario = %s AND id_repositorio = %s",
+                (id_usuario, id_repositorio),
+            )
+
+
+def repositorios_do_usuario(id_usuario):
+    """Lista os repositórios do usuário com status de coleta."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.id_repositorio, r.nome, r.url, ur.nome_exibicao,
+                       r.atualizado_em,
+                       (r.atualizado_em IS NOT NULL) AS coletado
+                FROM Usuario_Repositorio ur
+                JOIN Repositorio r ON r.id_repositorio = ur.id_repositorio
+                WHERE ur.id_usuario = %s
+                ORDER BY ur.criado_em DESC
+                """,
+                (id_usuario,),
+            )
+            cols = ["id_repositorio", "nome", "url", "nome_exibicao",
+                    "atualizado_em", "coletado"]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def usuario_dono(id_usuario, id_repositorio):
+    """True se o usuário acompanha esse repositório."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM Usuario_Repositorio "
+                "WHERE id_usuario = %s AND id_repositorio = %s",
+                (id_usuario, id_repositorio),
+            )
+            return cur.fetchone() is not None
+
+
+def repositorio_por_id(id_repositorio):
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id_repositorio, id_framework, nome, url FROM Repositorio "
+                "WHERE id_repositorio = %s",
+                (id_repositorio,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = ["id_repositorio", "id_framework", "nome", "url"]
+            return dict(zip(cols, row))
+
+
+# ---------------------------------------------------------------------------
+# Métricas (ETL)
+# ---------------------------------------------------------------------------
+
 def insert_metrica_diaria(df: pd.DataFrame):
-    """
-    Insere (ou atualiza) as métricas diárias a partir de um DataFrame.
-    Espera colunas: id_repositorio, dia, commits, autores_distintos,
-                    lines_added, lines_deleted
-    """
+    """Insere/atualiza métricas diárias (upsert por repo+dia)."""
+    if df.empty:
+        return
     sql = """
         INSERT INTO Metrica_Diaria
             (id_repositorio, dia, commits, autores_distintos,
@@ -98,13 +254,38 @@ def insert_metrica_diaria(df: pd.DataFrame):
     log.info("%d linhas inseridas/atualizadas em Metrica_Diaria.", len(rows))
 
 
+def insert_metrica_autor_mensal(df: pd.DataFrame, id_repositorio: int,
+                                mes_inicio):
+    """Substitui a série mensal por autor de um repositório (limpa e recarrega).
+
+    Espera colunas: mes (date), autor, commits.
+    """
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM Metrica_Autor_Mensal "
+                "WHERE id_repositorio = %s AND mes >= %s",
+                (id_repositorio, mes_inicio),
+            )
+            if not df.empty:
+                cur.executemany(
+                    """
+                    INSERT INTO Metrica_Autor_Mensal
+                        (id_repositorio, mes, autor, commits)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (id_repositorio, mes, autor)
+                    DO UPDATE SET commits = EXCLUDED.commits
+                    """,
+                    [(id_repositorio, r.mes, r.autor, r.commits)
+                     for r in df.itertuples()],
+                )
+    log.info("Metrica_Autor_Mensal atualizada para o repo %d.", id_repositorio)
+
+
 def insert_metrica_sustentabilidade(df: pd.DataFrame):
-    """
-    Insere métricas sociais (TTFR, issues, contribuidores, cadência) a partir de um DataFrame.
-    Espera colunas: id_repositorio, periodo_inicio, periodo_fim,
-                    ttfr_medio_dias, issues_abertas, issues_fechadas,
-                    contribuidores_ativos, cadencia_releases
-    """
+    """Insere métricas sociais (TTFR, issues, contribuidores, cadência)."""
+    if df.empty:
+        return
     sql = """
         INSERT INTO Metrica_Sustentabilidade
             (id_repositorio, periodo_inicio, periodo_fim,
@@ -134,11 +315,9 @@ def insert_metrica_sustentabilidade(df: pd.DataFrame):
 
 
 def insert_metrica_sustentabilidade_commits(df: pd.DataFrame):
-    """
-    Insere métricas derivadas dos commits (bus_factor, churn_relativo)
-    a partir de um DataFrame. Espera colunas: id_repositorio,
-    periodo_inicio, periodo_fim, bus_factor, churn_relativo.
-    """
+    """Insere métricas derivadas dos commits (bus_factor, churn_relativo)."""
+    if df.empty:
+        return
     sql = """
         INSERT INTO Metrica_Sustentabilidade
             (id_repositorio, periodo_inicio, periodo_fim,
@@ -162,11 +341,21 @@ def insert_metrica_sustentabilidade_commits(df: pd.DataFrame):
     log.info("%d linhas inseridas/atualizadas em Metrica_Sustentabilidade (commits).", len(rows))
 
 
-def get_repositorios():
-    """Retorna DataFrame com id_repositorio, nome, url, id_framework."""
-    with connection() as conn:
-        return pd.read_sql(
+def get_repositorios(ids=None):
+    """Retorna DataFrame com id_repositorio, id_framework, nome, url.
+
+    ids: lista opcional para restringir a coleta a alguns repositórios.
+    """
+    sql = (
+        "SELECT id_repositorio, id_framework, nome, url "
+        "FROM Repositorio ORDER BY nome"
+    )
+    params = None
+    if ids:
+        sql = (
             "SELECT id_repositorio, id_framework, nome, url "
-            "FROM Repositorio ORDER BY nome",
-            conn,
+            "FROM Repositorio WHERE id_repositorio IN %s ORDER BY nome"
         )
+        params = (tuple(ids),)
+    with connection() as conn:
+        return pd.read_sql(sql, conn, params=params)

@@ -1,39 +1,63 @@
 # FAP — Framework Analytics Platform
 
-Plataforma de análise de sustentabilidade de frameworks via **Mineração de
+Plataforma de análise de sustentabilidade de repositórios via **Mineração de
 Repositórios de Software (MSR)**: coleta code churn (PyDriller) e métricas sociais
-(GitHub API), armazena em PostgreSQL e apresenta um dashboard de ranking
-com Plotly.js.
+(GitHub API), armazena em PostgreSQL e apresenta um dashboard com Plotly.js.
 
-**A coleta é automática:** ao iniciar o app, o schema é aplicado e, se o banco
-estiver vazio, os coletores rodam em segundo plano exibindo o progresso no
-dashboard. Uma rotina semanal (APScheduler) mantém os dados atualizados.
+**Só os seus repositórios:** você entra com GitHub (OAuth), cadastra os
+repositórios que quer acompanhar e a plataforma coleta commits, releases e
+contribuidores em segundo plano, calculando métricas que o próprio GitHub não
+mostra (Bus Factor, TTFR, churn relativo) mais **análises exclusive da FAP**
+(curva de concentração de conhecimento e score de sustentabilidade 0–100).
+
+## Fluxo
+1. `GET /` sem sessão → redireciona para `/login` (OAuth GitHub; sem
+   `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` no `.env` o botão cai no
+   `/login/dev`, que entra como usuário `dev` para desenvolvimento).
+2. No dashboard, cole a URL de um repositório público → valida na API do GitHub,
+   vincula ao usuário e dispara a coleta em background (polling em
+   `/api/coleta/status`).
+3. Na página do repositório, duas abas:
+   - **GitHub**: commits por dia, linhas +/-, autores, contribuidores e
+     releases (API ao vivo);
+   - **Análises FAP**: score 0–100 com barras de componentes, curva de
+     concentração (top-1 e top-3 por mês) e métricas de sustentabilidade.
 
 ## Estrutura
 ```
 fap/
 ├── requirements.txt
 ├── .env.example              # -> copie para .env e preencha
-├── sql/schema.sql            # 4 tabelas + frameworks iniciais (idempotente)
+├── sql/schema.sql            # idempotente: métricas, usuários e vínculos
 ├── data/                     # clones temporários e CSVs de backup
 ├── src/
 │   ├── config.py             # carrega variáveis do .env
 │   ├── database.py           # conexão PostgreSQL + ETL (upsert) + init_schema()
 │   ├── status.py             # estado da coleta em background (thread-safe)
-│   ├── app.py                # backend Flask + auto-coleta no boot + APScheduler
+│   ├── analises.py           # curva de concentração + score de sustentabilidade
+│   ├── app.py                # Flask: OAuth, CRUD de repos, APIs, auto-coleta
 │   └── collect/
 │       ├── pydriller_collect.py   # code churn + Bus Factor + churn relativo
+│       │                          # + agregação mensal por autor
 │       └── github_metrics.py      # TTFR (mediana, sem bots) + issues + releases
-├── templates/index.html      # tema claro + tela de progresso
-├── static/
-│   ├── css/style.css         # token block (IBM Plex, tema claro)
-│   └── js/main.js            # tabela, veredito, gráfico Plotly, polling
+│                                  # + contribuidores (com retry e token)
+├── templates/
+│   ├── base.html             # topo (marca + usuário) e rodapé
+│   ├── login.html            # cartão de autenticação
+│   ├── meus_repos.html       # formulário + lista com status/polling
+│   └── repo_detalhe.html     # abas GitHub | Análises FAP
+└── static/
+    ├── css/style.css         # token block (IBM Plex, tema claro)
+    └── js/
+        ├── repos.js          # CRUD + polling do dashboard
+        └── repo_detalhe.js   # gráficos Plotly + score + abas
 ```
 
 ## Requisitos
 - Python 3.12 (com "Add to PATH")
 - PostgreSQL (porta 5432)
 - Token do GitHub (opcional, aumenta o limite da API)
+- OAuth App do GitHub (opcional; habilita o login real)
 
 ## Instalação
 1. Crie o ambiente virtual e instale as dependências:
@@ -56,48 +80,34 @@ fap/
 cd src
 python app.py
 ```
-Abra `http://localhost:5000`. No primeiro boot o dashboard mostra a **tela de
-progresso** (etapa, repo atual, X/6) enquanto os coletores rodam em background;
-quando termina, o ranking aparece sozinho. Nas execuções seguintes, com dados já
-no banco, o dashboard abre direto.
+Abra `http://localhost:5000`. Os repositórios vinculados que ainda não foram
+coletados (`Repositorio.atualizado_em IS NULL`) são processados em background no
+boot, e uma rotina APScheduler (padrão: 7 dias) mantém tudo atualizado.
 
-Endpoints:
-- `GET /api/framework/ranking` — ranking consolidado por ecossistema
-- `GET /api/coleta/status` — estado da coleta (usado pelo polling da tela de progresso)
+Endpoints principais:
+- `POST /repos` / `DELETE /repos/<id>` — CRUD dos repositórios do usuário
+- `GET /api/repos` — lista JSON (polling do dashboard)
+- `GET /api/repo/<id>/resumo` — série, autores, métricas, curva e score
+- `GET /api/repo/<id>/github` — contribuidores e releases (API ao vivo)
+- `GET /api/coleta/status` — estado da coleta
 - `GET /api/health` — verificação de vida
 
-A coleta também é reexecutada automaticamente a cada `MINERACAO_INTERVALO_DIAS`
-(7 por padrão) via APScheduler.
-
 ## Coleta manual (opcional)
-Só é necessário se quiser rodar os motores fora do app — com o banco já
-criado, basta reiniciar `python app.py` que ele detecta dados faltantes e coleta:
+Com o banco criado, basta reiniciar `python app.py` que ele detecta os
+repositórios pendentes e coleta; para rodar os motores fora do app:
 ```bash
 cd src
-python -m collect.pydriller_collect    # commits, Bus Factor, churn relativo
-python -m collect.github_metrics       # TTFR, issues, releases
+python -m collect.pydriller_collect    # commits, Bus Factor, churn relativo, autores/mês
+python -m collect.github_metrics       # TTFR, issues, releases, contribuidores
 ```
 
 ## Métricas
 | Métrica | Definição |
 |---------|-----------|
-| Commits | total no período, somado ao nível do ecossistema |
-| Rating | % dos commits totais do período |
-| Mudança | variação da atividade (últimos 30 dias vs. 30 anteriores) |
+| Commits | total de commits de autores humanos na janela (6 meses) |
 | Bus Factor | menor `k` tal que a soma das `k` maiores contribuições > 50% do total |
 | TTFR | mediana do tempo até a primeira resposta humana (exclui PRs e bots) |
 | Churn relativo | (linhas add + del no período) / LOC do repositório |
 | Cadência de Releases | releases publicados por mês na janela (`R / M`) |
-
-Ranking ordenado por **commits totais do ecossistema**; as demais métricas
-vêm do repositório primário (maior nº de commits) de cada framework.
-
-## Adicionar outro framework
-Cadastre o framework e seus repositórios e reinicie o app — a coleta
-automática detecta o dado faltante e processa os novos repos:
-```sql
-INSERT INTO Framework (nome, linguagem) VALUES ('X', 'Python');
-INSERT INTO Repositorio (id_framework, nome, url) VALUES
-  ((SELECT id_framework FROM Framework WHERE nome = 'X'), 'x',
-   'https://github.com/org/x.git');
-```
+| Curva de concentração | % dos commits do mês feitos pelo top-1 e top-3 de autores |
+| Score (0–100) | média das componentes normalizadas: atividade (teto 1000 commits), Bus Factor (teto 5), responsividade (piso 7 dias de TTFR) e estabilidade (piso de churn 1,5); métricas ausentes não entram na média |

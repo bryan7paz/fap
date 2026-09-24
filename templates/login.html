@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}FAP · Entrar{% endblock %}
+
+{% block content %}
+<section class="auth-card">
+    <p class="eyebrow">Mining Software Repositories</p>
+    <h1 class="auth-title">Entre para analisar seus <span class="accent">repositórios</span>.</h1>
+    <p class="auth-sub">
+        Cadastre os repositórios que você quer acompanhar e a FAP coleta commits,
+        releases e contribuidores para calcular métricas que o próprio GitHub não
+        mostra: Bus Factor, TTFR, churn relativo e concentração de conhecimento.
+    </p>
+
+    {% if erro %}
+        <p class="form-erro">Falha no login ({{ erro }}). Tente novamente.</p>
+    {% endif %}
+
+    {% if oauth %}
+        <a class="btn btn-primary btn-lg" href="{{ url_for('login_github') }}">
+            Entrar com GitHub
+        </a>
+        <p class="auth-nota">Autenticação OAuth — a FAP usa seu token apenas para
+            ler dados públicos e respeitar melhor o rate limit da API.</p>
+    {% else %}
+        <a class="btn btn-primary btn-lg" href="{{ url_for('login_dev') }}">
+            Entrar (modo desenvolvimento)
+        </a>
+        <p class="auth-nota">
+            OAuth não configurado. Para liberar o login com GitHub, crie um
+            OAuth App em <code>github.com/settings/developers</code> e preencha
+            <code>GITHUB_CLIENT_ID</code> e <code>GITHUB_CLIENT_SECRET</code> no <code>.env</code>.
+        </p>
+    {% endif %}
+</section>
+{% endblock %}

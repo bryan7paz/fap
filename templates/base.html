@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FAP · Framework Analytics Platform{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    {% block head %}{% endblock %}
+</head>
+<body>
+
+    <header class="topbar">
+        <a class="brand" href="/">
+            <span class="brand-mark">FAP</span>
+            <span class="brand-text">
+                <strong>Framework Analytics Platform</strong>
+                <span>análise de sustentabilidade de repositórios</span>
+            </span>
+        </a>
+        <div class="topbar-meta">
+            {% if current_user.is_authenticated %}
+                {% if current_user.avatar_url %}
+                    <img class="avatar" src="{{ current_user.avatar_url }}" alt="">
+                {% endif %}
+                <span class="user-login">{{ current_user.login }}</span>
+                <a class="btn btn-ghost" href="{{ url_for('logout') }}">sair</a>
+            {% else %}
+                <span class="live-dot" aria-hidden="true"></span>
+                <span>entrar com GitHub</span>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="wrap">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

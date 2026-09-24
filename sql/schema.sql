@@ -11,10 +11,12 @@ CREATE TABLE IF NOT EXISTS Framework (
     criado_em      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. REPOSITORIO: repositórios que compõem o ecossistema
+-- 2. REPOSITORIO: repositórios cadastrados pelos usuários
+--    id_framework é opcional: repos pessoais do usuário não pertencem
+--    a nenhum ecossistema de framework.
 CREATE TABLE IF NOT EXISTS Repositorio (
     id_repositorio SERIAL PRIMARY KEY,
-    id_framework   INTEGER NOT NULL REFERENCES Framework(id_framework) ON DELETE CASCADE,
+    id_framework   INTEGER REFERENCES Framework(id_framework) ON DELETE CASCADE,
     nome           VARCHAR(150) NOT NULL UNIQUE,
     url            VARCHAR(300) NOT NULL,
     estrelas       INTEGER DEFAULT 0
@@ -59,38 +61,41 @@ CREATE INDEX IF NOT EXISTS idx_sustentabilidade_rep ON Metrica_Sustentabilidade 
 CREATE INDEX IF NOT EXISTS idx_repositorio_framework ON Repositorio (id_framework);
 
 -- ============================================================
--- DADOS INICIAIS: ecossistemas de frameworks (comparação relacional)
+-- USUÁRIOS E REPOSITÓRIOS PESSOAIS (login OAuth GitHub)
 -- ============================================================
 
--- Flask (micro: ecossistema distribuído)
-INSERT INTO Framework (nome, linguagem) VALUES ('Flask', 'Python')
-ON CONFLICT (nome) DO NOTHING;
+-- 5. USUARIO: conta criada via OAuth do GitHub
+CREATE TABLE IF NOT EXISTS Usuario (
+    id_usuario    SERIAL PRIMARY KEY,
+    github_id     BIGINT NOT NULL UNIQUE,
+    login         VARCHAR(100) NOT NULL,
+    nome          VARCHAR(200),
+    avatar_url    VARCHAR(500),
+    access_token  VARCHAR(300),
+    criado_em     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-INSERT INTO Repositorio (id_framework, nome, url) VALUES
-  ((SELECT id_framework FROM Framework WHERE nome = 'Flask'),
-   'flask',     'https://github.com/pallets/flask.git'),
-  ((SELECT id_framework FROM Framework WHERE nome = 'Flask'),
-   'jinja',     'https://github.com/pallets/jinja.git'),
-  ((SELECT id_framework FROM Framework WHERE nome = 'Flask'),
-   'werkzeug',  'https://github.com/pallets/werkzeug.git')
-ON CONFLICT (nome) DO NOTHING;
+-- 6. USUARIO_REPOSITORIO: quais repositórios cada usuário acompanha
+CREATE TABLE IF NOT EXISTS Usuario_Repositorio (
+    id_usuario_repo  SERIAL PRIMARY KEY,
+    id_usuario       INTEGER NOT NULL REFERENCES Usuario(id_usuario) ON DELETE CASCADE,
+    id_repositorio   INTEGER NOT NULL REFERENCES Repositorio(id_repositorio) ON DELETE CASCADE,
+    nome_exibicao    VARCHAR(150),
+    criado_em        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_usuario_repo UNIQUE (id_usuario, id_repositorio)
+);
+CREATE INDEX IF NOT EXISTS idx_usuario_repo_usuario ON Usuario_Repositorio (id_usuario);
 
--- Django (monolítico: ecossistema concentrado)
-INSERT INTO Framework (nome, linguagem) VALUES ('Django', 'Python')
-ON CONFLICT (nome) DO NOTHING;
-
-INSERT INTO Repositorio (id_framework, nome, url) VALUES
-  ((SELECT id_framework FROM Framework WHERE nome = 'Django'),
-   'django', 'https://github.com/django/django.git')
-ON CONFLICT (nome) DO NOTHING;
-
--- FastAPI (assíncrono: ecossistema distribuído)
-INSERT INTO Framework (nome, linguagem) VALUES ('FastAPI', 'Python')
-ON CONFLICT (nome) DO NOTHING;
-
-INSERT INTO Repositorio (id_framework, nome, url) VALUES
-  ((SELECT id_framework FROM Framework WHERE nome = 'FastAPI'),
-   'fastapi',   'https://github.com/fastapi/fastapi.git'),
-  ((SELECT id_framework FROM Framework WHERE nome = 'FastAPI'),
-   'starlette', 'https://github.com/encode/starlette.git')
-ON CONFLICT (nome) DO NOTHING;
+-- ============================================================
+-- MÉTRICA DE CONCENTRAÇÃO DE CONHECIMENTO (análise nova FAP)
+-- Commits por autor e mês — alimenta a curva de concentração
+-- ============================================================
+CREATE TABLE IF NOT EXISTS Metrica_Autor_Mensal (
+    id_autor_mes   SERIAL PRIMARY KEY,
+    id_repositorio INTEGER NOT NULL REFERENCES Repositorio(id_repositorio) ON DELETE CASCADE,
+    mes            DATE NOT NULL,
+    autor          VARCHAR(200) NOT NULL,
+    commits        INTEGER DEFAULT 0,
+    CONSTRAINT uq_rep_mes_autor UNIQUE (id_repositorio, mes, autor)
+);
+CREATE INDEX IF NOT EXISTS idx_autor_mes_rep ON Metrica_Autor_Mensal (id_repositorio);

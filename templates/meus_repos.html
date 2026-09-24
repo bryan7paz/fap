@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}FAP · Meus repositórios{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <p class="eyebrow">Mineração de repositórios · janela de 6 meses</p>
+    <h1 class="hero-title">Meus <span class="accent">repositórios</span></h1>
+    <p class="hero-sub">
+        Adicione o link de um repositório público do GitHub. A coleta roda em
+        segundo plano e, ao terminar, você vê as métricas de sustentabilidade
+        e as análises exclusive da FAP.
+    </p>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h2 class="panel-title">Adicionar repositório</h2>
+            <p class="panel-desc">Cole a URL e dê um nome de exibição</p>
+        </div>
+    </div>
+    <form class="repo-form" id="form-add">
+        <label class="campo">
+            <span>URL do repositório</span>
+            <input type="url" id="campo-url" name="url" required
+                   placeholder="https://github.com/owner/repo" autocomplete="url">
+        </label>
+        <label class="campo">
+            <span>Nome (opcional)</span>
+            <input type="text" id="campo-nome" name="nome"
+                   placeholder="ex.: Meu projeto" maxlength="150">
+        </label>
+        <button class="btn btn-primary" type="submit" id="btn-add">Adicionar</button>
+        <p class="form-erro" id="form-erro" hidden></p>
+        <p class="form-ok" id="form-ok" hidden></p>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h2 class="panel-title">Repositórios monitorados</h2>
+            <p class="panel-desc" id="coleta-badge">verificando coleta…</p>
+        </div>
+        <span class="table-hint">clique em uma linha para abrir a análise</span>
+    </div>
+    <div class="table-wrap">
+        <table class="index-table" id="tabela-repos">
+            <thead>
+                <tr>
+                    <th>Repositório</th>
+                    <th>URL</th>
+                    <th class="num">Status</th>
+                    <th class="col-acoes">Ações</th>
+                </tr>
+            </thead>
+            <tbody id="repo-body">
+                <tr class="loading-row"><td colspan="4">Carregando…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<footer class="foot">
+    <p>FAP · dados públicos do GitHub via PyDriller e API REST · metodologia no artigo do TCC.</p>
+</footer>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    window.REPOS_INICIAIS = {{ repos | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/repos.js') }}"></script>
+{% endblock %}

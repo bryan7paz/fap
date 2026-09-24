@@ -21,11 +21,17 @@ else:
     log.warning("GITHUB_TOKEN não configurado — limite de 60 req/hora (não autenticado)")
 
 
-def _get(url, params=None, tentativas=5):
-    """GET com retry exponencial para rate limit secundário e conexões derrubadas."""
+def _get(url, params=None, tentativas=5, token=None):
+    """GET com retry exponencial para rate limit secundário e conexões derrubadas.
+
+    token: sobrescreve o token do sistema (usa o do usuário logado quando disponível).
+    """
+    headers = dict(HEADERS)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     for t in range(tentativas):
         try:
-            resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
+            resp = requests.get(url, headers=headers, params=params, timeout=30)
         except requests.exceptions.RequestException as e:
             if t == tentativas - 1:
                 raise
@@ -58,12 +64,13 @@ def _parse_owner_repo(url):
     return parts[-2], parts[-1]
 
 
-def buscar_issues(owner, nome_repo, desde):
+def buscar_issues(owner, nome_repo, desde, token=None):
     issues = []
     page = 1
     params = {"state": "all", "since": desde, "per_page": 100, "page": page}
     while True:
-        data = _get(f"{API_BASE}/repos/{owner}/{nome_repo}/issues", params).json()
+        data = _get(f"{API_BASE}/repos/{owner}/{nome_repo}/issues",
+                    params, token=token).json()
         issues.extend(data)
         if len(data) < 100:
             break
@@ -82,7 +89,7 @@ def _eh_bot(user):
     )
 
 
-def primeiro_comentario_humano(owner, nome_repo, numero):
+def primeiro_comentario_humano(owner, nome_repo, numero, token=None):
     """Data do primeiro comentário feito por um humano (ignora bots).
 
     Percorre as páginas de comentários até encontrar uma resposta não-bot;
@@ -93,6 +100,7 @@ def primeiro_comentario_humano(owner, nome_repo, numero):
         data = _get(
             f"{API_BASE}/repos/{owner}/{nome_repo}/issues/{numero}/comments",
             params={"per_page": 100, "page": page},
+            token=token,
         ).json()
         if not data:
             return None
@@ -104,12 +112,13 @@ def primeiro_comentario_humano(owner, nome_repo, numero):
         page += 1
 
 
-def calcular_ttfr_mediano(owner, nome_repo, issues):
+def calcular_ttfr_mediano(owner, nome_repo, issues, token=None):
     totais_dias = []
     for iss in issues:
         if "pull_request" in iss:
             continue
-        primeiro = primeiro_comentario_humano(owner, nome_repo, iss["number"])
+        primeiro = primeiro_comentario_humano(owner, nome_repo,
+                                              iss["number"], token=token)
         if not primeiro:
             continue
         criada = pd.Timestamp(iss["created_at"])
@@ -120,13 +129,14 @@ def calcular_ttfr_mediano(owner, nome_repo, issues):
     return float(pd.Series(totais_dias).median()), len(totais_dias)
 
 
-def buscar_releases(owner, nome_repo, desde):
+def buscar_releases(owner, nome_repo, desde, token=None):
     """Conta releases publicadas desde a data 'desde'."""
     page = 1
     count = 0
     params = {"per_page": 100, "page": page}
     while True:
-        data = _get(f"{API_BASE}/repos/{owner}/{nome_repo}/releases", params).json()
+        data = _get(f"{API_BASE}/repos/{owner}/{nome_repo}/releases",
+                    params, token=token).json()
         if not data:
             break
         for rel in data:
@@ -139,10 +149,50 @@ def buscar_releases(owner, nome_repo, desde):
     return count
 
 
-def executar():
-    repos = get_repositorios()
+def buscar_contribuidores(owner, nome_repo, token=None, limite=10):
+    """Top contribuidores da API do GitHub (contribuições totais)."""
+    data = _get(
+        f"{API_BASE}/repos/{owner}/{nome_repo}/contributors",
+        params={"per_page": limite},
+        token=token,
+    ).json()
+    if not isinstance(data, list):
+        return []
+    return [
+        {
+            "login": c.get("login"),
+            "avatar_url": c.get("avatar_url"),
+            "contribuicoes": c.get("contributions", 0),
+        }
+        for c in data
+    ]
+
+
+def listar_releases(owner, nome_repo, token=None, limite=10):
+    """Últimos releases publicados (tag, data, nome)."""
+    data = _get(
+        f"{API_BASE}/repos/{owner}/{nome_repo}/releases",
+        params={"per_page": limite},
+        token=token,
+    ).json()
+    if not isinstance(data, list):
+        return []
+    return [
+        {
+            "tag": r.get("tag_name"),
+            "nome": r.get("name") or r.get("tag_name"),
+            "publicado_em": r.get("published_at"),
+        }
+        for r in data
+    ]
+
+
+def executar(ids=None, token=None):
+    """Coleta métricas sociais de todos os repos ou apenas os de `ids`."""
+    repos = get_repositorios(ids)
     if repos.empty:
-        raise RuntimeError("Nenhum repositório cadastrado. Rode o schema.sql antes.")
+        log.warning("Nenhum repositório para coletar (ids=%s).", ids)
+        return
 
     os.makedirs(os.path.join(PROJ_ROOT, "data"), exist_ok=True)
 
@@ -170,9 +220,10 @@ def executar():
         log.info("Processando %s/%s", owner, nome_repo)
         status.atualizar(repo_atual=repo.nome, repos_concluidos=i)
 
-        issues = buscar_issues(owner, nome_repo, desde)
-        ttfr_mediano, qtd = calcular_ttfr_mediano(owner, nome_repo, issues)
-        releases = buscar_releases(owner, nome_repo, desde)
+        issues = buscar_issues(owner, nome_repo, desde, token=token)
+        ttfr_mediano, qtd = calcular_ttfr_mediano(owner, nome_repo, issues,
+                                                  token=token)
+        releases = buscar_releases(owner, nome_repo, desde, token=token)
         cadencia = releases / MESES_ANALISE if MESES_ANALISE else None
 
         linhas.append(
