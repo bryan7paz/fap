@@ -183,7 +183,11 @@ document.getElementById("btn-remover").addEventListener("click", async (e) => {
     if (resp.ok) window.location.href = "/";
 });
 
-carregarResumo();
+carregarResumo().catch(e => {
+    const badge = document.getElementById("badge-status");
+    badge.textContent = "falha ao carregar dados";
+    badge.className = "badge badge-amber";
+});
 carregarGithub();
 
 // se a coleta estiver rodando para este repo, atualiza em loop

@@ -56,10 +56,12 @@ fap/
 ```
 
 ## Requisitos
-- Python 3.12 (com "Add to PATH")
-- PostgreSQL (porta 5432)
-- Token do GitHub (opcional, aumenta o limite da API)
-- OAuth App do GitHub (opcional; habilita o login real)
+-   Python 3.12 (com "Add to PATH")
+-   PostgreSQL (porta 5432)
+-   Token do GitHub (essencial na prática: sem ele são só 60 req/hora da API e
+    o cálculo do TTFR faz 1 requisição por issue — a coleta não fecha a tempo;
+    com token autenticado o limite é 5.000 req/hora)
+-   OAuth App do GitHub (opcional; habilita o login real)
 
 ## Instalação
 1. Crie o ambiente virtual e instale as dependências:

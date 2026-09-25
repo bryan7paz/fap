@@ -7,8 +7,7 @@
 CREATE TABLE IF NOT EXISTS Repositorio (
     id_repositorio SERIAL PRIMARY KEY,
     nome           VARCHAR(150) NOT NULL UNIQUE,
-    url            VARCHAR(300) NOT NULL,
-    estrelas       INTEGER DEFAULT 0
+    url            VARCHAR(300) NOT NULL
 );
 
 -- 2. METRICA_DIARIA: code churn agregado por dia

@@ -1,14 +1,50 @@
 """Conexão com o PostgreSQL e helpers de carga (ETL)."""
+import base64
+import hashlib
 import logging
 import math
+import os
 from contextlib import contextmanager
 
 import pandas as pd
 import psycopg2
+from cryptography.fernet import Fernet, InvalidToken
 
 from config import DB_CONFIG, PROJ_ROOT
 
 log = logging.getLogger("fap.db")
+
+_fernet = None
+
+
+def _chave_token():
+    """Fernet key derivada de SESSION_SECRET (cacheada por processo)."""
+    global _fernet
+    if _fernet is None:
+        segredo = os.getenv("SESSION_SECRET") or "fap-local"
+        digesto = hashlib.pbkdf2_hmac("sha256", segredo.encode(),
+                                      b"fap-token-v1", 200_000)
+        _fernet = Fernet(base64.urlsafe_b64encode(digesto))
+    return _fernet
+
+
+def cifrar_token(token):
+    """Cifra o token OAuth do usuário antes de persistir."""
+    if not token:
+        return None
+    return _chave_token().encrypt(token.encode()).decode()
+
+
+def decifrar_token(valor):
+    """Lê o token cifrado; tolera plaintext legado e blob órfão de outra chave."""
+    if not valor:
+        return None
+    try:
+        return _chave_token().decrypt(valor.encode()).decode()
+    except InvalidToken:
+        if valor.startswith("gAAAAA"):
+            return None  # cifrado com outra SESSION_SECRET — usa o token do sistema
+        return valor  # gravação legada em plaintext (antes da criptografia)
 
 
 def init_schema():
@@ -21,6 +57,8 @@ def init_schema():
         "ALTER TABLE Repositorio DROP COLUMN IF EXISTS id_framework",
         "DROP TABLE IF EXISTS Framework",
         "ALTER TABLE Repositorio ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP",
+        # coluna nunca preenchida (resquício do modelo antigo)
+        "ALTER TABLE Repositorio DROP COLUMN IF EXISTS estrelas",
     ]
     conn = get_connection()
     try:
@@ -106,25 +144,28 @@ def upsert_usuario(github_id, login, nome=None, avatar_url=None, access_token=No
                     access_token = EXCLUDED.access_token
                 RETURNING id_usuario
                 """,
-                (github_id, login, nome, avatar_url, access_token),
+                (github_id, login, nome, avatar_url, cifrar_token(access_token)),
             )
             return cur.fetchone()[0]
 
 
 def buscar_usuario(id_usuario):
-    """Dict do usuário ou None."""
+    """Dict do usuário (com o access_token decifrado) ou None."""
     with connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id_usuario, github_id, login, nome, avatar_url "
+                "SELECT id_usuario, github_id, login, nome, avatar_url, access_token "
                 "FROM Usuario WHERE id_usuario = %s",
                 (id_usuario,),
             )
             row = cur.fetchone()
             if not row:
                 return None
-            cols = ["id_usuario", "github_id", "login", "nome", "avatar_url"]
-            return dict(zip(cols, row))
+            cols = ["id_usuario", "github_id", "login", "nome", "avatar_url",
+                    "access_token"]
+            dados = dict(zip(cols, row))
+            dados["access_token"] = decifrar_token(dados["access_token"])
+            return dados
 
 
 # ---------------------------------------------------------------------------

@@ -145,8 +145,12 @@ def callback():
 
 @app.route("/login/dev")
 def login_dev():
-    """Fallback local quando o OAuth ainda não está configurado."""
-    if OAUTH_CONFIGURADO:
+    """Fallback local quando o OAuth ainda não está configurado.
+
+    Somente a partir de 127.0.0.1/::1: se o app um dia sair do localhost,
+    a rota some (404) em vez de virar entrada livre na plataforma.
+    """
+    if OAUTH_CONFIGURADO or request.remote_addr not in ("127.0.0.1", "::1"):
         abort(404)
     id_usuario = upsert_usuario(github_id=0, login="dev",
                                 nome="Desenvolvimento")
@@ -190,6 +194,7 @@ def health():
 
 
 @app.route("/api/coleta/status")
+@login_required
 def api_coleta_status():
     return jsonify(status.snapshot())
 

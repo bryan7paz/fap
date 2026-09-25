@@ -19,6 +19,11 @@ PISO_CHURN = 1.5       # churn relativo >= 1,5 => score 0
 TOP_AUTORES = 3
 
 
+def _limitar(valor):
+    """Mantém o componente dentro de [0, 100] mesmo com dados fora do esperado."""
+    return max(0.0, min(100.0, valor))
+
+
 def curva_concentracao(id_repositorio):
     """Participação do top-3 de autores por mês (% dos commits do mês).
 
@@ -72,7 +77,7 @@ def score_sustentabilidade(metricas):
         componentes.append({
             "nome": "Atividade",
             "descricao": f"{commits} commits (teto {TETO_COMMITS})",
-            "valor": round(min(100.0, commits / TETO_COMMITS * 100), 1),
+            "valor": round(_limitar(commits / TETO_COMMITS * 100), 1),
         })
 
     bf = metricas.get("bus_factor")
@@ -80,7 +85,7 @@ def score_sustentabilidade(metricas):
         componentes.append({
             "nome": "Bus Factor",
             "descricao": f"BF = {bf} (teto {TETO_BUS_FACTOR})",
-            "valor": round(min(100.0, bf / TETO_BUS_FACTOR * 100), 1),
+            "valor": round(_limitar(bf / TETO_BUS_FACTOR * 100), 1),
         })
 
     ttfr = metricas.get("ttfr")
@@ -88,7 +93,7 @@ def score_sustentabilidade(metricas):
         componentes.append({
             "nome": "Responsividade",
             "descricao": f"TTFR = {ttfr:.2f} dia (piso {PISO_TTFR_DIAS}d)",
-            "valor": round(max(0.0, (1 - ttfr / PISO_TTFR_DIAS) * 100), 1),
+            "valor": round(_limitar((1 - ttfr / PISO_TTFR_DIAS) * 100), 1),
         })
 
     churn = metricas.get("churn_relativo")
@@ -96,7 +101,7 @@ def score_sustentabilidade(metricas):
         componentes.append({
             "nome": "Estabilidade",
             "descricao": f"churn = {churn:.3f} (piso {PISO_CHURN})",
-            "valor": round(max(0.0, (1 - churn / PISO_CHURN) * 100), 1),
+            "valor": round(_limitar((1 - churn / PISO_CHURN) * 100), 1),
         })
 
     if not componentes:

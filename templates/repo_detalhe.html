@@ -2,7 +2,7 @@
 {% block title %}FAP · {{ repo.nome }}{% endblock %}
 
 {% block head %}
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='js/plotly-2.35.2.min.js') }}"></script>
 {% endblock %}
 
 {% block content %}

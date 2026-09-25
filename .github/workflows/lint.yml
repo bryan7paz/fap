@@ -17,3 +17,31 @@ jobs:
         run: pip install pyflakes
       - name: Verifica o código
         run: pyflakes src
+
+  testes:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: senha_ci_fap
+          POSTGRES_DB: fap
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DB_PASSWORD: senha_ci_fap
+      SESSION_SECRET: segredo_estatico_dos_testes_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instala dependências
+        run: pip install -r requirements.txt pytest
+      - name: Roda os testes
+        run: pytest -q
