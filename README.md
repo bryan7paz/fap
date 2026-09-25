@@ -111,6 +111,15 @@ Abra `http://localhost:5000`. Os repositórios vinculados que ainda não foram
 coletados (`Repositorio.atualizado_em IS NULL`) são processados em background no
 boot, e uma rotina APScheduler (padrão: 7 dias) mantém tudo atualizado.
 
+### Com Docker (opcional)
+Com o Docker Desktop instalado e o `.env` preenchido:
+```bash
+docker compose up --build
+```
+Sobe app + PostgreSQL na mesma rede (o banco é criado sozinho pelo compose) e o
+app abre em `http://localhost:5000`. Os clones ficam num volume `dados-fap` e o
+banco num volume `postgres-dados` (sobrevivem a `docker compose down`).
+
 Endpoints principais:
 - `POST /repos` / `DELETE /repos/<id>` — CRUD dos repositórios do usuário
 - `GET /api/repos` — lista JSON (polling do dashboard)

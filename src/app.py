@@ -770,4 +770,6 @@ if os.getenv("FAP_SEM_AUTOCOLETA") != "1":
 
 if __name__ == "__main__":
     from waitress import serve
-    serve(app, host="127.0.0.1", port=5000)
+    serve(app,
+          host=os.getenv("FAP_HOST", "127.0.0.1"),
+          port=int(os.getenv("PORT", "5000")))

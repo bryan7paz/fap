@@ -42,6 +42,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Instala dependências
-        run: pip install -r requirements.txt pytest
+        run: pip install -r requirements.txt pytest responses
       - name: Roda os testes
         run: pytest -q

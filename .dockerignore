@@ -1,0 +1,9 @@
+.git
+__pycache__
+*.pyc
+.pytest_cache
+fap_env/
+data/
+.env
+logs_app*.log
+_screenshots/
