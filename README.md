@@ -1,5 +1,7 @@
 # FAP — Framework Analytics Platform
 
+[![lint](https://github.com/bryan7paz/fap/actions/workflows/lint.yml/badge.svg)](https://github.com/bryan7paz/fap/actions/workflows/lint.yml)
+
 Plataforma de análise de sustentabilidade de repositórios via **Mineração de
 Repositórios de Software (MSR)**: coleta code churn (PyDriller) e métricas sociais
 (GitHub API), armazena em PostgreSQL e apresenta um dashboard com Plotly.js.
@@ -111,3 +113,6 @@ python -m collect.github_metrics       # TTFR, issues, releases, contribuidores
 | Cadência de Releases | releases publicados por mês na janela (`R / M`) |
 | Curva de concentração | % dos commits do mês feitos pelo top-1 e top-3 de autores |
 | Score (0–100) | média das componentes normalizadas: atividade (teto 1000 commits), Bus Factor (teto 5), responsividade (piso 7 dias de TTFR) e estabilidade (piso de churn 1,5); métricas ausentes não entram na média |
+
+## Licença
+Distribuído sob a licença [MIT](LICENSE).
