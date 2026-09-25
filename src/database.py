@@ -17,8 +17,9 @@ def init_schema():
     with open(schema_path, encoding="utf-8") as f:
         sql = f.read()
     migracoes = [
-        # bancos criados antes do pivot: Repositorio exigia framework
-        "ALTER TABLE Repositorio ALTER COLUMN id_framework DROP NOT NULL",
+        # bancos criados antes do pivot: remove o modelo antigo de frameworks
+        "ALTER TABLE Repositorio DROP COLUMN IF EXISTS id_framework",
+        "DROP TABLE IF EXISTS Framework",
         "ALTER TABLE Repositorio ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP",
     ]
     conn = get_connection()
@@ -206,14 +207,14 @@ def repositorio_por_id(id_repositorio):
     with connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id_repositorio, id_framework, nome, url FROM Repositorio "
+                "SELECT id_repositorio, nome, url FROM Repositorio "
                 "WHERE id_repositorio = %s",
                 (id_repositorio,),
             )
             row = cur.fetchone()
             if not row:
                 return None
-            cols = ["id_repositorio", "id_framework", "nome", "url"]
+            cols = ["id_repositorio", "nome", "url"]
             return dict(zip(cols, row))
 
 
@@ -337,18 +338,18 @@ def insert_metrica_sustentabilidade_commits(df: pd.DataFrame):
 
 
 def get_repositorios(ids=None):
-    """Retorna DataFrame com id_repositorio, id_framework, nome, url.
+    """Retorna DataFrame com id_repositorio, nome, url.
 
     ids: lista opcional para restringir a coleta a alguns repositórios.
     """
     sql = (
-        "SELECT id_repositorio, id_framework, nome, url "
+        "SELECT id_repositorio, nome, url "
         "FROM Repositorio ORDER BY nome"
     )
     params = None
     if ids:
         sql = (
-            "SELECT id_repositorio, id_framework, nome, url "
+            "SELECT id_repositorio, nome, url "
             "FROM Repositorio WHERE id_repositorio IN %s ORDER BY nome"
         )
         params = (tuple(ids),)

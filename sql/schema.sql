@@ -1,28 +1,17 @@
 -- ============================================================
--- FAP - Framework Sustainability Analysis
+-- FAP - Framework Analytics Platform
 -- Esquema do banco de dados (PostgreSQL)
 -- ============================================================
 
--- 1. FRAMEWORK: cada ecossistema analisado (ex: Flask)
-CREATE TABLE IF NOT EXISTS Framework (
-    id_framework   SERIAL PRIMARY KEY,
-    nome           VARCHAR(100) NOT NULL UNIQUE,
-    linguagem      VARCHAR(50),
-    criado_em      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 2. REPOSITORIO: repositórios cadastrados pelos usuários
---    id_framework é opcional: repos pessoais do usuário não pertencem
---    a nenhum ecossistema de framework.
+-- 1. REPOSITORIO: repositórios cadastrados pelos usuários
 CREATE TABLE IF NOT EXISTS Repositorio (
     id_repositorio SERIAL PRIMARY KEY,
-    id_framework   INTEGER REFERENCES Framework(id_framework) ON DELETE CASCADE,
     nome           VARCHAR(150) NOT NULL UNIQUE,
     url            VARCHAR(300) NOT NULL,
     estrelas       INTEGER DEFAULT 0
 );
 
--- 3. METRICA_DIARIA: code churn agregado por dia
+-- 2. METRICA_DIARIA: code churn agregado por dia
 CREATE TABLE IF NOT EXISTS Metrica_Diaria (
     id_metrica     SERIAL PRIMARY KEY,
     id_repositorio INTEGER NOT NULL REFERENCES Repositorio(id_repositorio) ON DELETE CASCADE,
@@ -36,7 +25,7 @@ CREATE TABLE IF NOT EXISTS Metrica_Diaria (
     CONSTRAINT uq_rep_dia UNIQUE (id_repositorio, dia)
 );
 
--- 4. METRICA_SUSTENTABILIDADE: indicadores sociais (TTFR, etc.)
+-- 3. METRICA_SUSTENTABILIDADE: indicadores sociais (TTFR, etc.)
 CREATE TABLE IF NOT EXISTS Metrica_Sustentabilidade (
     id_sustent      SERIAL PRIMARY KEY,
     id_repositorio  INTEGER NOT NULL REFERENCES Repositorio(id_repositorio) ON DELETE CASCADE,
@@ -58,7 +47,6 @@ CREATE TABLE IF NOT EXISTS Metrica_Sustentabilidade (
 CREATE INDEX IF NOT EXISTS idx_metrica_diaria_rep ON Metrica_Diaria (id_repositorio);
 CREATE INDEX IF NOT EXISTS idx_metrica_diaria_dia ON Metrica_Diaria (dia);
 CREATE INDEX IF NOT EXISTS idx_sustentabilidade_rep ON Metrica_Sustentabilidade (id_repositorio);
-CREATE INDEX IF NOT EXISTS idx_repositorio_framework ON Repositorio (id_framework);
 
 -- ============================================================
 -- USUÁRIOS E REPOSITÓRIOS PESSOAIS (login OAuth GitHub)
