@@ -1,9 +1,14 @@
 const repos = Array.isArray(window.REPOS_INICIAIS) ? window.REPOS_INICIAIS : [];
+const selecionados = new Set();
 
 function esc(str) {
     const el = document.createElement("span");
     el.textContent = str == null ? "" : String(str);
     return el.innerHTML;
+}
+
+function atualizarBtnComparar() {
+    document.getElementById("btn-comparar").hidden = selecionados.size < 2;
 }
 
 function fmtData(d) {
@@ -20,11 +25,12 @@ function badgeStatus(repo) {
 function render() {
     const body = document.getElementById("repo-body");
     if (!repos.length) {
-        body.innerHTML = '<tr class="loading-row"><td colspan="4">Nenhum repositório — adicione o primeiro acima.</td></tr>';
+        body.innerHTML = '<tr class="loading-row"><td colspan="5">Nenhum repositório — adicione o primeiro acima.</td></tr>';
         return;
     }
     body.innerHTML = repos.map(r => `
         <tr class="linha-repo" data-id="${r.id_repositorio}" style="cursor:pointer">
+            <td class="col-sel"><input type="checkbox" class="sel-repo" data-id="${r.id_repositorio}"${selecionados.has(String(r.id_repositorio)) ? " checked" : ""}></td>
             <td><strong>${esc(r.nome_exibicao || r.nome)}</strong></td>
             <td class="url-col">${esc(r.url)}</td>
             <td class="num">${badgeStatus(r)}</td>
@@ -36,8 +42,15 @@ function render() {
 
     body.querySelectorAll("tr.linha-repo").forEach(tr => {
         tr.addEventListener("click", (e) => {
-            if (e.target.closest(".btn-remover")) return;
+            if (e.target.closest(".btn-remover") || e.target.closest(".sel-repo")) return;
             window.location.href = "/repo/" + tr.dataset.id;
+        });
+    });
+    body.querySelectorAll(".sel-repo").forEach(chk => {
+        chk.addEventListener("change", () => {
+            if (chk.checked) selecionados.add(chk.dataset.id);
+            else selecionados.delete(chk.dataset.id);
+            atualizarBtnComparar();
         });
     });
     body.querySelectorAll(".btn-remover").forEach(btn => {
@@ -48,6 +61,8 @@ function render() {
             if (resp.ok) {
                 const i = repos.findIndex(r => String(r.id_repositorio) === btn.dataset.id);
                 if (i >= 0) repos.splice(i, 1);
+                selecionados.delete(btn.dataset.id);
+                atualizarBtnComparar();
                 render();
             }
         });
@@ -78,10 +93,18 @@ async function recarregarRepos() {
         const novos = await fetch("/api/repos").then(r => r.json());
         if (Array.isArray(novos)) {
             repos.splice(0, repos.length, ...novos);
+            const idsVivos = new Set(repos.map(r => String(r.id_repositorio)));
+            [...selecionados].forEach(id => { if (!idsVivos.has(id)) selecionados.delete(id); });
+            atualizarBtnComparar();
             render();
         }
     } catch (e) { /* mantém a lista atual */ }
 }
+
+document.getElementById("btn-comparar").addEventListener("click", () => {
+    if (selecionados.size < 2) return;
+    window.location.href = "/comparar?ids=" + [...selecionados].join(",");
+});
 
 document.getElementById("form-add").addEventListener("submit", async (e) => {
     e.preventDefault();

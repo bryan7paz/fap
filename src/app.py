@@ -274,6 +274,33 @@ def remover_repo(id_repositorio):
 # APIs de dados do repositório
 # ---------------------------------------------------------------------------
 
+def _num(v):
+    """Float seguro: None para ausente/NaN (NaN != NaN)."""
+    try:
+        f = float(v)
+        return None if f != f else f
+    except (TypeError, ValueError):
+        return None
+
+
+def _inteiro(v):
+    f = _num(v)
+    return int(f) if f is not None else None
+
+
+def _linha_metricas(row):
+    return {
+        "periodo_inicio": str(row["periodo_inicio"]),
+        "periodo_fim": str(row["periodo_fim"]),
+        "ttfr": _num(row["ttfr_medio_dias"]),
+        "bus_factor": _inteiro(row["bus_factor"]),
+        "churn_relativo": _num(row["churn_relativo"]),
+        "issues_abertas": _inteiro(row["issues_abertas"]),
+        "issues_fechadas": _inteiro(row["issues_fechadas"]),
+        "cadencia_releases": _num(row["cadencia_releases"]),
+    }
+
+
 def _metricas_latest(id_repositorio):
     with connection() as conn:
         df = pd.read_sql(
@@ -289,29 +316,99 @@ def _metricas_latest(id_repositorio):
         )
     if df.empty:
         return None
-    row = df.iloc[0]
+    return _linha_metricas(df.iloc[0])
 
-    def num(v):
-        try:
-            f = float(v)
-            return None if f != f else f
-        except (TypeError, ValueError):
-            return None
 
-    def inteiro(v):
-        f = num(v)
-        return int(f) if f is not None else None
+def _historico_score(id_repositorio):
+    """Score de cada período coletado (commits somados pela janela do período)."""
+    with connection() as conn:
+        linhas = pd.read_sql(
+            """
+            SELECT ms.periodo_inicio, ms.periodo_fim, ms.ttfr_medio_dias,
+                   ms.bus_factor, ms.churn_relativo,
+                   COALESCE((
+                       SELECT SUM(d.commits) FROM Metrica_Diaria d
+                       WHERE d.id_repositorio = ms.id_repositorio
+                         AND d.dia BETWEEN ms.periodo_inicio AND ms.periodo_fim
+                   ), 0) AS commits
+            FROM Metrica_Sustentabilidade ms
+            WHERE ms.id_repositorio = %s
+            ORDER BY ms.periodo_inicio
+            """,
+            conn, params=(id_repositorio,),
+        )
+    historico = []
+    for r in linhas.itertuples():
+        s = analises.score_sustentabilidade({
+            "commits": int(r.commits) if r.commits else None,
+            "bus_factor": _inteiro(r.bus_factor),
+            "ttfr": _num(r.ttfr_medio_dias),
+            "churn_relativo": _num(r.churn_relativo),
+        })
+        historico.append({
+            "periodo_inicio": str(r.periodo_inicio),
+            "periodo_fim": str(r.periodo_fim),
+            "score": s["score"],
+        })
+    return historico
 
+
+def _totais_periodo(id_repositorio, inicio):
+    """Totais de commits/linhas do repo desde `inicio` (janela corrente)."""
+    with connection() as conn:
+        df = pd.read_sql(
+            """
+            SELECT COALESCE(SUM(commits), 0) AS commits,
+                   COALESCE(SUM(lines_added), 0) AS add,
+                   COALESCE(SUM(lines_deleted), 0) AS del
+            FROM Metrica_Diaria
+            WHERE id_repositorio = %s AND dia >= %s
+            """,
+            conn, params=(id_repositorio, inicio),
+        )
+    r = df.iloc[0]
+    return {"commits": int(r["commits"]), "linhas_add": int(r["add"]),
+            "linhas_del": int(r["del"])}
+
+
+def _dados_comparacao(id_repositorio):
+    """Pacote completo de um repo para a tela de comparação."""
+    repo = repositorio_por_id(id_repositorio)
+    if not repo:
+        return None
+    inicio = (pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)).date()
+    totais = _totais_periodo(id_repositorio, inicio)
+    metricas = _metricas_latest(id_repositorio)
+    score = analises.score_sustentabilidade({
+        "commits": totais["commits"] if totais["commits"] else None,
+        "bus_factor": metricas["bus_factor"] if metricas else None,
+        "ttfr": metricas["ttfr"] if metricas else None,
+        "churn_relativo": metricas["churn_relativo"] if metricas else None,
+    })
     return {
-        "periodo_inicio": str(row["periodo_inicio"]),
-        "periodo_fim": str(row["periodo_fim"]),
-        "ttfr": num(row["ttfr_medio_dias"]),
-        "bus_factor": inteiro(row["bus_factor"]),
-        "churn_relativo": num(row["churn_relativo"]),
-        "issues_abertas": inteiro(row["issues_abertas"]),
-        "issues_fechadas": inteiro(row["issues_fechadas"]),
-        "cadencia_releases": num(row["cadencia_releases"]),
+        "repo": repo,
+        "totais": totais,
+        "metricas": metricas,
+        "score": score,
+        "curva": analises.curva_concentracao(id_repositorio, inicio),
     }
+
+
+@app.route("/comparar")
+@login_required
+def comparar():
+    """Comparação lado a lado dos repositórios do usuário (`?ids=1,2`)."""
+    ids = []
+    for parte in request.args.get("ids", "").split(","):
+        parte = parte.strip()
+        if parte.isdigit():
+            ids.append(int(parte))
+    dados = [
+        d for d in (_dados_comparacao(i) for i in ids
+                    if usuario_dono(current_user.id, i))
+        if d
+    ]
+    return render_template("comparar.html", dados=dados, meses=MESES_ANALISE)
 
 
 @app.route("/api/repo/<int:id_repositorio>/resumo")
@@ -375,6 +472,7 @@ def api_repo_resumo(id_repositorio):
             for r in autores.itertuples()
         ],
         "curva": analises.curva_concentracao(id_repositorio, inicio),
+        "historico_score": _historico_score(id_repositorio),
         "score": score,
     })
 

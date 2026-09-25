@@ -69,6 +69,24 @@ def test_fluxo_logado_completo(client, logado):
     assert client.get("/api/repo/9999999/github").status_code == 403
 
 
+def test_comparar_sem_login_redireciona(client):
+    assert client.get("/comparar?ids=1,2").status_code == 302
+
+
+def test_comparar_logado_sem_ids_mostra_vazio(client, logado):
+    resp = client.get("/comparar")
+    assert resp.status_code == 200
+    assert "Nenhum repositório selecionado" in resp.get_data(as_text=True)
+
+
+def test_comparar_filtra_repos_de_outros_usuarios(client, logado):
+    with client.session_transaction() as s:
+        assert s.get("_user_id") == str(logado)
+    resp = client.get("/comparar?ids=9999999")
+    assert resp.status_code == 200
+    assert "Nenhum repositório selecionado" in resp.get_data(as_text=True)
+
+
 def test_adicionar_repo_com_url_invalida(client, logado):
     resp = client.post("/repos", json={"url": "https://github.com/so-um-dono"})
     assert resp.status_code == 400

@@ -42,12 +42,14 @@
             <h2 class="panel-title">Repositórios monitorados</h2>
             <p class="panel-desc" id="coleta-badge">verificando coleta…</p>
         </div>
+        <button class="btn btn-primary" id="btn-comparar" hidden>comparar selecionados</button>
         <span class="table-hint">clique em uma linha para abrir a análise</span>
     </div>
     <div class="table-wrap">
         <table class="index-table" id="tabela-repos">
             <thead>
                 <tr>
+                    <th class="col-sel"></th>
                     <th>Repositório</th>
                     <th>URL</th>
                     <th class="num">Status</th>
@@ -55,7 +57,7 @@
                 </tr>
             </thead>
             <tbody id="repo-body">
-                <tr class="loading-row"><td colspan="4">Carregando…</td></tr>
+                <tr class="loading-row"><td colspan="5">Carregando…</td></tr>
             </tbody>
         </table>
     </div>

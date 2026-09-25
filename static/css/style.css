@@ -446,7 +446,7 @@ body {
 .score-row {
   display: grid;
   grid-template-columns: 110px 1fr 36px;
-  grid-template-areas: "lbl track val" "desc desc desc";
+  grid-template-areas: "lbl track val" "desc desc desc" "alerta alerta alerta";
   gap: var(--space-3xs) var(--space-xs);
   align-items: center;
 }
@@ -455,6 +455,8 @@ body {
 .score-fill { height: 100%; background: var(--accent); transition: width var(--dur) var(--ease); }
 .score-val { grid-area: val; font-family: var(--font-mono); font-size: var(--step--1); text-align: right; font-variant-numeric: tabular-nums; }
 .score-desc { grid-area: desc; font-size: var(--step--2); color: var(--ink-3); }
+.score-alerta { grid-area: alerta; font-size: var(--step--2); color: var(--ocre, #b45309); font-weight: 500; }
+.score-fill.score-bad { background: var(--ocre, #b45309); }
 .score-formula {
   grid-column: 1 / -1;
   font-family: var(--font-mono);
@@ -484,3 +486,6 @@ body {
   .score-corpo { grid-template-columns: 1fr; }
   .score-num { justify-self: start; }
 }
+
+.col-sel { width: 32px; text-align: center; }
+.col-sel input { cursor: pointer; }

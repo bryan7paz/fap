@@ -78,6 +78,7 @@ async function carregarResumo() {
     renderMetricas(r.metricas);
     renderScore(r.score);
     renderCurva(r.curva);
+    renderEvolucao(r.historico_score);
 }
 
 /* ---------------- métricas ---------------- */
@@ -112,12 +113,33 @@ function renderScore(score) {
     bars.innerHTML = score.componentes.map(c => `
         <div class="score-row">
             <span class="score-lbl">${esc(c.nome)}</span>
-            <div class="score-track"><div class="score-fill" style="width:${c.valor}%"></div></div>
+            <div class="score-track"><div class="score-fill${c.alerta ? " score-bad" : ""}" style="width:${c.valor}%"></div></div>
             <span class="score-val">${c.valor.toFixed(0)}</span>
             <span class="score-desc">${esc(c.descricao)}</span>
+            ${c.alerta ? `<span class="score-alerta">⚠ ${esc(c.alerta)}</span>` : ""}
         </div>`).join("");
     formula.textContent = "score = média dos componentes normalizados (0–100); " +
         "métricas ausentes não entram na média.";
+}
+
+/* ---------------- evolução do score ---------------- */
+function renderEvolucao(historico) {
+    const pontos = (historico || []).filter(h => h.score != null);
+    if (pontos.length < 2) {
+        document.getElementById("graf-evolucao").innerHTML =
+            '<p class="muted" style="padding:24px">Aparece a partir da segunda coleta — a agendada roda a cada 7 dias.</p>';
+        return;
+    }
+    Plotly.newPlot("graf-evolucao", [{
+        x: pontos.map(h => h.periodo_fim),
+        y: pontos.map(h => h.score),
+        type: "scatter", mode: "lines+markers",
+        line: { color: PALETA.accent, width: 2.4 },
+        hovertemplate: "período até %{x}<br>score: %{y}<extra></extra>",
+    }], {
+        ...LAYOUT_BASE, height: 300,
+        yaxis: { ...LAYOUT_BASE.yaxis, range: [0, 105], ticksuffix: "" },
+    }, { responsive: true, displayModeBar: false });
 }
 
 /* ---------------- curva de concentração ---------------- */

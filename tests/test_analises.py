@@ -60,5 +60,21 @@ def test_score_resultado_com_um_casual():
     assert r["score"] == 82.0
 
 
+def test_componente_ruim_carrega_alerta():
+    r = score_sustentabilidade({"commits": 10, "bus_factor": 1,
+                                "ttfr": 6.0, "churn_relativo": 1.4})
+    alertas = {c["nome"]: c.get("alerta") for c in r["componentes"]}
+    assert alertas["Atividade"]         # 10 commits << limiar
+    assert alertas["Bus Factor"]        # BF 1 -> 20 < 60
+    assert alertas["Responsividade"]    # TTFR 6d -> 14.3 < 50
+    assert alertas["Estabilidade"]      # churn 1.4 -> 6.7 < 40
+
+
+def test_componente_bom_sem_alerta():
+    r = score_sustentabilidade({"commits": 2000, "bus_factor": 5,
+                                "ttfr": 0.0, "churn_relativo": 0.0})
+    assert all("alerta" not in c for c in r["componentes"])
+
+
 def test_curva_repo_inexistente_retorna_lista_vazia():
     assert curva_concentracao(10**9) == []
