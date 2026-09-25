@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}FAP · Snapshot avaliável{% endblock %}
+
+{% block content %}
+<section class="repo-header">
+    <div>
+        <p class="eyebrow"><a href="/">← meus repositórios</a></p>
+        <h1 class="hero-title repo-titulo">Snapshot <span class="accent">avaliável</span></h1>
+        <p class="repo-url">tabela consolidada por período coletado — números fixos e reproduzíveis para o artigo</p>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h2 class="panel-title">Período</h2>
+            <p class="panel-desc">somente períodos já coletados pela FAP</p>
+        </div>
+    </div>
+    {% if periodos %}
+    <form class="repo-form" method="get">
+        <label class="campo">
+            <span>Período coletado</span>
+            <select name="periodo">
+                {% for ini, fim in periodos %}
+                <option value="{{ ini }}|{{ fim }}"{% if selecionado == ini + '|' + fim %} selected{% endif %}>{{ ini }} → {{ fim }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="btn btn-primary" type="submit">Gerar snapshot</button>
+    </form>
+    {% else %}
+        <p class="muted" style="padding: var(--space-s) 0">Nenhum período coletado ainda — adicione repositórios e aguarde a coleta terminar.</p>
+    {% endif %}
+</section>
+
+{% if selecionado %}
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h2 class="panel-title">Consolidado dos seus repositórios</h2>
+            <p class="panel-desc">período {{ selecionado.replace('|', ' → ') }} · fixo/reproduzível</p>
+        </div>
+        <a class="btn btn-primary" href="{{ url_for('snapshot_csv') }}?periodo={{ selecionado }}">baixar CSV</a>
+    </div>
+    <div class="table-wrap">
+        <table class="index-table">
+            <thead>
+                <tr>
+                    <th>Repositório</th>
+                    <th class="num">Commits</th>
+                    <th class="num">Bus Factor</th>
+                    <th class="num">TTFR (dias)</th>
+                    <th class="num">Churn</th>
+                    <th class="num">Cad./mês</th>
+                    <th class="num">Issues ab.</th>
+                    <th class="num">Issues fech.</th>
+                    <th class="num">Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for l in linhas %}
+                <tr>
+                    <td><strong>{{ l.rotulo }}</strong></td>
+                    <td class="num">{{ l.commits }}</td>
+                    <td class="num">{{ l.bus_factor if l.bus_factor is not none else "—" }}</td>
+                    <td class="num">{{ "%.2f"|format(l.ttfr) if l.ttfr is not none else "—" }}</td>
+                    <td class="num">{{ "%.3f"|format(l.churn_relativo) if l.churn_relativo is not none else "—" }}</td>
+                    <td class="num">{{ "%.2f"|format(l.cadencia) if l.cadencia is not none else "—" }}</td>
+                    <td class="num">{{ l.issues_abertas if l.issues_abertas is not none else "—" }}</td>
+                    <td class="num">{{ l.issues_fechadas if l.issues_fechadas is not none else "—" }}</td>
+                    <td class="num">{{ l.score if l.score is not none else "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+<footer class="foot">
+    <p>FAP · dados públicos do GitHub via PyDriller e API REST · metodologia no artigo do TCC.</p>
+</footer>
+{% endblock %}

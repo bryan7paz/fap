@@ -1,4 +1,6 @@
 """Backend Flask: login OAuth GitHub, gestão de repositórios e análises."""
+import csv
+import io
 import logging
 import os
 import secrets
@@ -6,8 +8,8 @@ import threading
 from datetime import datetime, timezone
 
 import requests as rq
-from flask import (Flask, abort, jsonify, redirect, render_template, request,
-                   session, url_for)
+from flask import (Flask, Response, abort, jsonify, redirect, render_template,
+                   request, send_file, session, url_for)
 from flask_login import (LoginManager, UserMixin, current_user, login_required,
                          login_user, logout_user)
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -353,6 +355,21 @@ def _historico_score(id_repositorio):
     return historico
 
 
+def _serie_diaria(id_repositorio, inicio):
+    """Série dia a dia (commits, linhas +/−) desde `inicio`."""
+    with connection() as conn:
+        return pd.read_sql(
+            """
+            SELECT dia, SUM(commits) AS commits, SUM(lines_added) AS add,
+                   SUM(lines_deleted) AS del
+            FROM Metrica_Diaria
+            WHERE id_repositorio = %s AND dia >= %s
+            GROUP BY dia ORDER BY dia
+            """,
+            conn, params=(id_repositorio, inicio),
+        )
+
+
 def _totais_periodo(id_repositorio, inicio):
     """Totais de commits/linhas do repo desde `inicio` (janela corrente)."""
     with connection() as conn:
@@ -385,12 +402,17 @@ def _dados_comparacao(id_repositorio):
         "ttfr": metricas["ttfr"] if metricas else None,
         "churn_relativo": metricas["churn_relativo"] if metricas else None,
     })
+    serie = [
+        {"dia": str(r.dia), "commits": int(r.commits)}
+        for r in _serie_diaria(id_repositorio, inicio).itertuples()
+    ]
     return {
         "repo": repo,
         "totais": totais,
         "metricas": metricas,
         "score": score,
         "curva": analises.curva_concentracao(id_repositorio, inicio),
+        "serie": serie,
     }
 
 
@@ -418,17 +440,8 @@ def api_repo_resumo(id_repositorio):
         abort(403)
     repo = repositorio_por_id(id_repositorio)
     inicio = (pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)).date()
+    serie = _serie_diaria(id_repositorio, inicio)
     with connection() as conn:
-        serie = pd.read_sql(
-            """
-            SELECT dia, SUM(commits) AS commits, SUM(lines_added) AS add,
-                   SUM(lines_deleted) AS del
-            FROM Metrica_Diaria
-            WHERE id_repositorio = %s AND dia >= %s
-            GROUP BY dia ORDER BY dia
-            """,
-            conn, params=(id_repositorio, inicio),
-        )
         autores = pd.read_sql(
             """
             SELECT autor, SUM(commits) AS commits
@@ -496,6 +509,143 @@ def api_repo_github(id_repositorio):
         log.exception("Falha ao consultar GitHub para %s", repo["nome"])
         return jsonify(erro=f"Falha ao consultar a API do GitHub ({e.__class__.__name__})."), 502
     return jsonify({"contribuidores": contribuidores, "releases": releases})
+
+
+@app.route("/repo/<int:id_repositorio>/relatorio")
+@login_required
+def repo_relatorio(id_repositorio):
+    """Relatório .docx do repositório (score, métricas, gráficos)."""
+    if not usuario_dono(current_user.id, id_repositorio):
+        abort(403)
+    dados = _dados_comparacao(id_repositorio)
+    if not dados:
+        abort(404)
+    from relatorio import gerar_relatorio
+    buf = gerar_relatorio(dados)
+    nome = dados["repo"]["nome"].replace(" ", "-")
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=f"relatorio-{nome}.docx",
+        mimetype="application/vnd.openxmlformats-officedocument"
+                 ".wordprocessingml.document",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Snapshot avaliável (tabela consolidada por período coletado)
+# ---------------------------------------------------------------------------
+
+def _parse_periodo(valor):
+    """'2026-03-25|2026-09-25' -> (date, date) ou None."""
+    if not valor or "|" not in valor:
+        return None
+    ini, fim = valor.split("|", 1)
+    try:
+        return (pd.Timestamp(ini).date(), pd.Timestamp(fim).date())
+    except ValueError:
+        return None
+
+
+def _periodos_do_usuario(id_usuario):
+    """Períodos coletados com métricas de repositórios do usuário."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT ms.periodo_inicio, ms.periodo_fim
+                FROM Metrica_Sustentabilidade ms
+                JOIN Usuario_Repositorio ur ON ur.id_repositorio = ms.id_repositorio
+                WHERE ur.id_usuario = %s
+                ORDER BY ms.periodo_inicio DESC
+                """,
+                (id_usuario,),
+            )
+            return [(row[0].isoformat(), row[1].isoformat()) for row in cur.fetchall()]
+
+
+def _linhas_snapshot(id_usuario, ini, fim):
+    """Uma linha por repo do usuário, com as métricas fixas do período."""
+    with connection() as conn:
+        df = pd.read_sql(
+            """
+            SELECT r.nome, r.url, COALESCE(ur.nome_exibicao, r.nome) AS rotulo,
+                   ms.bus_factor, ms.ttfr_medio_dias, ms.churn_relativo,
+                   ms.issues_abertas, ms.issues_fechadas, ms.cadencia_releases,
+                   COALESCE((
+                       SELECT SUM(d.commits) FROM Metrica_Diaria d
+                       WHERE d.id_repositorio = r.id_repositorio
+                         AND d.dia BETWEEN ms.periodo_inicio AND ms.periodo_fim
+                   ), 0) AS commits
+            FROM Usuario_Repositorio ur
+            JOIN Repositorio r ON r.id_repositorio = ur.id_repositorio
+            LEFT JOIN Metrica_Sustentabilidade ms
+                   ON ms.id_repositorio = r.id_repositorio
+                  AND ms.periodo_inicio = %s AND ms.periodo_fim = %s
+            WHERE ur.id_usuario = %s
+            ORDER BY r.nome
+            """,
+            conn, params=(ini, fim, id_usuario),
+        )
+    linhas = []
+    for r in df.itertuples():
+        s = analises.score_sustentabilidade({
+            "commits": int(r.commits) if r.commits else None,
+            "bus_factor": _inteiro(r.bus_factor),
+            "ttfr": _num(r.ttfr_medio_dias),
+            "churn_relativo": _num(r.churn_relativo),
+        })
+        linhas.append({
+            "rotulo": r.rotulo,
+            "url": r.url,
+            "commits": int(r.commits),
+            "bus_factor": _inteiro(r.bus_factor),
+            "ttfr": _num(r.ttfr_medio_dias),
+            "churn_relativo": _num(r.churn_relativo),
+            "cadencia": _num(r.cadencia_releases),
+            "issues_abertas": _inteiro(r.issues_abertas),
+            "issues_fechadas": _inteiro(r.issues_fechadas),
+            "score": s["score"],
+        })
+    return linhas
+
+
+@app.route("/snapshot")
+@login_required
+def snapshot():
+    periodos = _periodos_do_usuario(current_user.id)
+    pedido = _parse_periodo(request.args.get("periodo"))
+    linhas, selecionado = [], None
+    if pedido:
+        ini, fim = pedido
+        selecionado = f"{ini.isoformat()}|{fim.isoformat()}"
+        linhas = _linhas_snapshot(current_user.id, ini, fim)
+    return render_template("snapshot.html", periodos=periodos,
+                           selecionado=selecionado, linhas=linhas)
+
+
+@app.route("/snapshot.csv")
+@login_required
+def snapshot_csv():
+    pedido = _parse_periodo(request.args.get("periodo"))
+    if not pedido:
+        abort(400)
+    ini, fim = pedido
+    saida = io.StringIO()
+    w = csv.writer(saida)
+    w.writerow(["repositorio", "url", "commits", "bus_factor", "ttfr_dias",
+                "churn_relativo", "cadencia_releases_mes", "issues_abertas",
+                "issues_fechadas", "score"])
+    for l in _linhas_snapshot(current_user.id, ini, fim):
+        w.writerow([l["rotulo"], l["url"], l["commits"], l["bus_factor"],
+                    l["ttfr"], l["churn_relativo"], l["cadencia"],
+                    l["issues_abertas"], l["issues_fechadas"], l["score"]])
+    return Response(
+        saida.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition":
+                 f"attachment; filename=snapshot-{ini}-a-{fim}.csv"},
+    )
 
 
 # ---------------------------------------------------------------------------

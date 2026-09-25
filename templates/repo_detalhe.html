@@ -14,6 +14,7 @@
     </div>
     <div class="repo-header-acoes">
         <span class="badge" id="badge-status">carregando…</span>
+        <a class="btn btn-primary" href="{{ url_for('repo_relatorio', id_repositorio=repo.id_repositorio) }}">baixar relatório</a>
         <button class="btn btn-ghost" id="btn-remover" data-id="{{ repo.id_repositorio }}">remover</button>
     </div>
 </section>
