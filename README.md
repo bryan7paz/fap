@@ -31,7 +31,7 @@ fap/
 ├── requirements.txt
 ├── .env.example              # -> copie para .env e preencha
 ├── sql/schema.sql            # idempotente: métricas, usuários e vínculos
-├── data/                     # clones temporários e CSVs de backup
+├── data/                     # clones git temporários + backups .sql
 ├── src/
 │   ├── config.py             # carrega variáveis do .env
 │   ├── database.py           # conexão PostgreSQL + ETL (upsert) + init_schema()
@@ -79,6 +79,29 @@ fap/
    copy .env.example .env   # edite DB_PASSWORD (e GITHUB_TOKEN)
    ```
 
+### Variáveis do `.env`
+| Variável | Obrigatória | Descrição |
+|----------|-------------|-----------|
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | sim | acesso ao PostgreSQL (defaults: localhost/5432/fap/postgres) |
+| `GITHUB_TOKEN` | essencial | PAT do GitHub: sem ele são só 60 req/h e a coleta de TTFR não fecha |
+| `SESSION_SECRET` | sim | segredo da sessão Flask e da cifra do token OAuth (sem ele o token não é armazenado) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | para login real | credenciais do OAuth App (sem elas o `/login` perde o botão) |
+| `MESES_ANALISE` | não | janela de análise em meses (default: 6) |
+| `MINERACAO_INTERVALO_DIAS` | não | período da coleta automática (default: 7) |
+| `FAP_SEM_AUTOCOLETA` | não | `1` = não coleta nada no boot (usado pelos testes) |
+
+### Login com GitHub (OAuth App)
+1. Em <https://github.com/settings/developers> → **OAuth Apps** → **New OAuth App**
+2. Preencha:
+   - **Homepage URL**: `http://127.0.0.1:5000`
+   - **Authorization callback URL**: `http://127.0.0.1:5000/callback`
+3. Copie o **Client ID** e gere o **Client Secret** e cole no `.env`
+4. Reinicie o app — o botão **"Entrar com GitHub"** aparece no `/login`
+
+Sem OAuth App, o `/login` mostra o botão **"Entrar (modo desenvolvimento)"**
+(`/login/dev`), que entra como usuário `dev` — a rota só existe em localhost e
+só enquanto o OAuth não está configurado.
+
 ## Executar
 ```bash
 cd src
@@ -115,6 +138,13 @@ python -m collect.github_metrics       # TTFR, issues, releases, contribuidores
 | Cadência de Releases | releases publicados por mês na janela (`R / M`) |
 | Curva de concentração | % dos commits do mês feitos pelo top-1 e top-3 de autores |
 | Score (0–100) | média das componentes normalizadas: atividade (teto 1000 commits), Bus Factor (teto 5), responsividade (piso 7 dias de TTFR) e estabilidade (piso de churn 1,5); métricas ausentes não entram na média |
+
+## Testes
+```bash
+pytest -q        # na raiz do projeto (precisa do PostgreSQL; CI roda os mesmos)
+```
+Suíte: score/curva (matemática pura), utilitários dos coletores, helpers do
+banco (criptografia do token e upserts) e smoke das rotas com login simulado.
 
 ## Licença
 Distribuído sob a licença [MIT](LICENSE).
