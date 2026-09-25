@@ -29,8 +29,15 @@ def _chave_token():
 
 
 def cifrar_token(token):
-    """Cifra o token OAuth do usuário antes de persistir."""
+    """Cifra o token OAuth do usuário antes de persistir.
+
+    Sem SESSION_SECRET não cifra (chave fallback fraca) — o token não é
+    armazenado e a coleta usa o token do sistema.
+    """
     if not token:
+        return None
+    if not os.getenv("SESSION_SECRET"):
+        log.warning("SESSION_SECRET ausente — token do usuário não será armazenado.")
         return None
     return _chave_token().encrypt(token.encode()).decode()
 
@@ -59,6 +66,9 @@ def init_schema():
         "ALTER TABLE Repositorio ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP",
         # coluna nunca preenchida (resquício do modelo antigo)
         "ALTER TABLE Repositorio DROP COLUMN IF EXISTS estrelas",
+        # repos de donos diferentes podem ter o mesmo nome: identidade pela URL
+        "ALTER TABLE Repositorio DROP CONSTRAINT IF EXISTS repositorio_nome_key",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_repositorio_url ON Repositorio (url)",
     ]
     conn = get_connection()
     try:
@@ -173,13 +183,13 @@ def buscar_usuario(id_usuario):
 # ---------------------------------------------------------------------------
 
 def upsert_repositorio(nome, url):
-    """Garante que o repositório existe (chave: nome) e retorna o id."""
+    """Garante que o repositório existe (chave: URL canônica) e retorna o id."""
     with connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO Repositorio (nome, url) VALUES (%s, %s)
-                ON CONFLICT (nome) DO UPDATE SET url = EXCLUDED.url
+                ON CONFLICT (url) DO UPDATE SET nome = EXCLUDED.nome
                 RETURNING id_repositorio
                 """,
                 (nome, url),
@@ -201,7 +211,12 @@ def link_usuario_repositorio(id_usuario, id_repositorio, nome_exibicao=None):
             )
 
 
-def deslinkar_usuario_repositorio(id_usuario, id_repositorio):
+def desvincular_e_limpar(id_usuario, id_repositorio):
+    """Remove o vínculo do usuário; se não sobrar dono, apaga o repo.
+
+    A exclusão do Repositorio propaga (cascade) para todas as métricas.
+    Retorna True se o repositório foi apagado.
+    """
     with connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -209,6 +224,32 @@ def deslinkar_usuario_repositorio(id_usuario, id_repositorio):
                 "WHERE id_usuario = %s AND id_repositorio = %s",
                 (id_usuario, id_repositorio),
             )
+            cur.execute(
+                "SELECT 1 FROM Usuario_Repositorio WHERE id_repositorio = %s",
+                (id_repositorio,),
+            )
+            if cur.fetchone() is not None:
+                return False
+            cur.execute(
+                "DELETE FROM Repositorio WHERE id_repositorio = %s",
+                (id_repositorio,),
+            )
+            return True
+
+
+def repositorios_vinculados():
+    """Ids dos repositórios vinculados a pelo menos um usuário (coleta periódica)."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT r.id_repositorio
+                FROM Repositorio r
+                JOIN Usuario_Repositorio ur USING (id_repositorio)
+                ORDER BY r.id_repositorio
+                """
+            )
+            return [row[0] for row in cur.fetchall()]
 
 
 def repositorios_do_usuario(id_usuario):
@@ -276,7 +317,8 @@ def insert_metrica_diaria(df: pd.DataFrame):
             commits = EXCLUDED.commits,
             autores_distintos = EXCLUDED.autores_distintos,
             lines_added = EXCLUDED.lines_added,
-            lines_deleted = EXCLUDED.lines_deleted
+            lines_deleted = EXCLUDED.lines_deleted,
+            atualizado_em = CURRENT_TIMESTAMP
     """
     rows = [
         (
@@ -335,7 +377,8 @@ def insert_metrica_sustentabilidade(df: pd.DataFrame):
             issues_abertas = EXCLUDED.issues_abertas,
             issues_fechadas = EXCLUDED.issues_fechadas,
             contribuidores_ativos = EXCLUDED.contribuidores_ativos,
-            cadencia_releases = EXCLUDED.cadencia_releases
+            cadencia_releases = EXCLUDED.cadencia_releases,
+            atualizado_em = CURRENT_TIMESTAMP
     """
     rows = [
         (
@@ -363,7 +406,8 @@ def insert_metrica_sustentabilidade_commits(df: pd.DataFrame):
         ON CONFLICT (id_repositorio, periodo_inicio, periodo_fim)
         DO UPDATE SET
             bus_factor = EXCLUDED.bus_factor,
-            churn_relativo = EXCLUDED.churn_relativo
+            churn_relativo = EXCLUDED.churn_relativo,
+            atualizado_em = CURRENT_TIMESTAMP
     """
     rows = [
         (

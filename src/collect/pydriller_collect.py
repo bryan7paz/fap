@@ -85,25 +85,39 @@ def calcular_bus_factor(df: pd.DataFrame):
     return k
 
 
-def contar_loc_python(caminho_repo: str):
-    """Conta linhas de código (LOC) dos arquivos Python rastreados pelo git."""
+EXTENSOES_BINARIAS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".avif",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf",
+    ".pdf", ".zip", ".gz", ".tgz", ".7z", ".rar",
+    ".jar", ".class", ".so", ".dll", ".exe", ".dylib",
+    ".mp3", ".mp4", ".avi", ".mov", ".wav",
+}
+
+
+def contar_loc(caminho_repo: str):
+    """Conta linhas dos arquivos rastreados pelo git (qualquer linguagem).
+
+    Arquivos binários são ignorados.
+    """
     try:
         saida = subprocess.run(
-            ["git", "-C", caminho_repo, "ls-files", "*.py"],
-            capture_output=True, text=True, timeout=60,
+            ["git", "-C", caminho_repo, "ls-files"],
+            capture_output=True, text=True, timeout=120,
         )
         arquivos = [a for a in saida.stdout.splitlines() if a.strip()]
         if not arquivos:
             return 0
         total = 0
         for a in arquivos:
+            if os.path.splitext(a)[1].lower() in EXTENSOES_BINARIAS:
+                continue
             try:
                 with open(os.path.join(caminho_repo, a), "r", errors="ignore") as f:
                     total += sum(1 for _ in f)
             except OSError:
                 continue
         return total
-    except (subprocess.TimeoutExpired, Exception):
+    except Exception:
         return 0
 
 
@@ -112,7 +126,7 @@ def calcular_churn_relativo(df: pd.DataFrame, caminho_repo: str):
     if df.empty:
         return None
     churn = df["lines_added"].sum() + df["lines_deleted"].sum()
-    loc = contar_loc_python(caminho_repo)
+    loc = contar_loc(caminho_repo)
     return (churn / loc) if loc else None
 
 
@@ -124,12 +138,12 @@ def executar(ids=None):
         return
 
     os.makedirs(CLONE_DIR, exist_ok=True)
-    os.makedirs(os.path.join(PROJ_ROOT, "data"), exist_ok=True)
 
     inicio_periodo = pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)
     hoje = pd.Timestamp.now().date()
 
     metricas_periodo = []
+    feitos = []
     total = len(repos)
     status.atualizar(
         estado="coletando",
@@ -145,10 +159,6 @@ def executar(ids=None):
         df = coletar_commits(repo.url)
         agregado = agregar_por_dia(df, repo.id_repositorio)
 
-        df.to_csv(
-            os.path.join(PROJ_ROOT, "data", f"commits_{repo.nome}.csv"),
-            index=False,
-        )
         log.info("%d commits extraídos para %s", len(df), repo.nome)
 
         if not agregado.empty:
@@ -168,10 +178,12 @@ def executar(ids=None):
                 "churn_relativo": calcular_churn_relativo(df, caminho_repo),
             }
         )
+        feitos.append(repo.id_repositorio)
         status.atualizar(repos_concluidos=i + 1)
 
     insert_metrica_sustentabilidade_commits(pd.DataFrame(metricas_periodo))
     log.info("Passo 2 concluído.")
+    return feitos
 
 
 if __name__ == "__main__":

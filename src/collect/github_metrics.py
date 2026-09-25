@@ -1,13 +1,12 @@
 """Métricas sociais via API do GitHub: TTFR e demais indicadores de sustentabilidade."""
 import logging
-import os
 import time
 from urllib.parse import urlparse
 
 import requests
 import pandas as pd
 
-from config import GITHUB_TOKEN, MESES_ANALISE, PROJ_ROOT
+from config import GITHUB_TOKEN, MESES_ANALISE
 from database import get_repositorios, insert_metrica_sustentabilidade
 import status
 
@@ -57,7 +56,10 @@ def _get(url, params=None, tentativas=5, token=None):
 
 def _parse_owner_repo(url):
     """Extrai (owner, repo) de forma segura a partir da URL."""
-    parsed = urlparse(url.rstrip("/").replace(".git", ""))
+    caminho = url.rstrip("/")
+    if caminho.lower().endswith(".git"):
+        caminho = caminho[:-4]
+    parsed = urlparse(caminho)
     parts = [p for p in parsed.path.strip("/").split("/") if p]
     if len(parts) < 2:
         raise ValueError(f"URL de repositório inválida: {url}")
@@ -192,15 +194,14 @@ def executar(ids=None, token=None):
     repos = get_repositorios(ids)
     if repos.empty:
         log.warning("Nenhum repositório para coletar (ids=%s).", ids)
-        return
-
-    os.makedirs(os.path.join(PROJ_ROOT, "data"), exist_ok=True)
+        return []
 
     desde = (pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)).strftime("%Y-%m-%dT%H:%M:%SZ")
     hoje = pd.Timestamp.now().strftime("%Y-%m-%d")
     inicio_periodo = pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)
 
     linhas = []
+    feitos = []
     total = len(repos)
     status.atualizar(
         estado="coletando",
@@ -221,6 +222,11 @@ def executar(ids=None, token=None):
         status.atualizar(repo_atual=repo.nome, repos_concluidos=i)
 
         issues = buscar_issues(owner, nome_repo, desde, token=token)
+        # apenas issues (sem PRs) criadas na janela — TTFR e contagens consistentes
+        issues = [iss for iss in issues
+                  if "pull_request" not in iss and iss["created_at"] >= desde]
+        log.info("%d issues do período para %s", len(issues), repo.nome)
+
         ttfr_mediano, qtd = calcular_ttfr_mediano(owner, nome_repo, issues,
                                                   token=token)
         releases = buscar_releases(owner, nome_repo, desde, token=token)
@@ -232,21 +238,18 @@ def executar(ids=None, token=None):
                 "periodo_inicio": inicio_periodo.date(),
                 "periodo_fim": pd.Timestamp(hoje).date(),
                 "ttfr_medio_dias": ttfr_mediano,
-                "issues_abertas": sum(1 for i in issues if i["state"] == "open"),
-                "issues_fechadas": sum(1 for i in issues if i["state"] == "closed"),
+                "issues_abertas": sum(1 for iss in issues if iss["state"] == "open"),
+                "issues_fechadas": sum(1 for iss in issues if iss["state"] == "closed"),
                 "contribuidores_ativos": qtd,
                 "cadencia_releases": cadencia,
             }
         )
+        feitos.append(repo.id_repositorio)
         status.atualizar(repos_concluidos=i + 1)
 
-    df = pd.DataFrame(linhas)
-    df.to_csv(
-        os.path.join(PROJ_ROOT, "data", "sustentabilidade.csv"),
-        index=False,
-    )
-    insert_metrica_sustentabilidade(df)
+    insert_metrica_sustentabilidade(pd.DataFrame(linhas))
     log.info("Passo 3 concluído.")
+    return feitos
 
 
 if __name__ == "__main__":

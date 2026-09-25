@@ -4,9 +4,10 @@
 -- ============================================================
 
 -- 1. REPOSITORIO: repositórios cadastrados pelos usuários
+-- Identidade pela URL: repos de donos diferentes podem ter o mesmo nome
 CREATE TABLE IF NOT EXISTS Repositorio (
     id_repositorio SERIAL PRIMARY KEY,
-    nome           VARCHAR(150) NOT NULL UNIQUE,
+    nome           VARCHAR(150) NOT NULL,
     url            VARCHAR(300) NOT NULL
 );
 
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS Metrica_Sustentabilidade (
 CREATE INDEX IF NOT EXISTS idx_metrica_diaria_rep ON Metrica_Diaria (id_repositorio);
 CREATE INDEX IF NOT EXISTS idx_metrica_diaria_dia ON Metrica_Diaria (dia);
 CREATE INDEX IF NOT EXISTS idx_sustentabilidade_rep ON Metrica_Sustentabilidade (id_repositorio);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_repositorio_url ON Repositorio (url);
 
 -- ============================================================
 -- USUÁRIOS E REPOSITÓRIOS PESSOAIS (login OAuth GitHub)

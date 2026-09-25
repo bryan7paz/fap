@@ -24,21 +24,27 @@ def _limitar(valor):
     return max(0.0, min(100.0, valor))
 
 
-def curva_concentracao(id_repositorio):
+def curva_concentracao(id_repositorio, mes_inicio=None):
     """Participação do top-3 de autores por mês (% dos commits do mês).
 
+    mes_inicio (opcional): restringe a série à janela de análise.
     Retorna lista ordenada: [{"mes": "2026-04", "top3": 62.5, "top1": 40.0,
                               "autores": 12, "commits": 180}, ...]
     """
     with connection() as conn:
         import pandas as pd
+        where = "WHERE id_repositorio = %s"
+        params = (id_repositorio,)
+        if mes_inicio is not None:
+            where += " AND mes >= %s"
+            params = (id_repositorio, mes_inicio)
         df = pd.read_sql(
-            """
+            f"""
             SELECT mes, autor, commits FROM Metrica_Autor_Mensal
-            WHERE id_repositorio = %s ORDER BY mes
+            {where} ORDER BY mes
             """,
             conn,
-            params=(id_repositorio,),
+            params=params,
         )
     if df.empty:
         return []

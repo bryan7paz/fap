@@ -15,11 +15,12 @@ from apscheduler.triggers.interval import IntervalTrigger
 import pandas as pd
 
 import analises
+from config import GITHUB_TOKEN, MESES_ANALISE
 from database import (connection, init_schema, repositorios_pendentes,
-                      repositorios_do_usuario, repositorio_por_id,
-                      usuario_dono, upsert_usuario, upsert_repositorio,
-                      link_usuario_repositorio, deslinkar_usuario_repositorio,
-                      buscar_usuario, marcar_coletado, get_repositorios)
+                      repositorios_vinculados, repositorios_do_usuario,
+                      repositorio_por_id, usuario_dono, upsert_usuario,
+                      upsert_repositorio, link_usuario_repositorio,
+                      desvincular_e_limpar, buscar_usuario, marcar_coletado)
 import status
 from collect.pydriller_collect import executar as coletar_code_churn
 from collect.github_metrics import (executar as coletar_metricas_sociais,
@@ -38,6 +39,7 @@ app = Flask(
     static_folder=os.path.join(os.path.dirname(__file__), "..", "static"),
 )
 app.secret_key = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
@@ -68,7 +70,6 @@ def _token_usuario():
     """Token do usuário logado; cai para o do sistema se ausente."""
     if current_user.is_authenticated and getattr(current_user, "access_token", None):
         return current_user.access_token
-    from config import GITHUB_TOKEN
     return GITHUB_TOKEN or None
 
 
@@ -124,12 +125,14 @@ def callback():
         log.error("OAuth sem access_token: %s", dados)
         return redirect(url_for("login", erro="falha_troca_token"))
     try:
-        perfil = rq.get(
+        resp = rq.get(
             "https://api.github.com/user",
             headers={"Accept": "application/vnd.github+json",
                      "Authorization": f"Bearer {token}"},
             timeout=15,
-        ).json()
+        )
+        resp.raise_for_status()
+        perfil = resp.json()
     except rq.RequestException:
         return redirect(url_for("login", erro="falha_perfil"))
     id_usuario = upsert_usuario(
@@ -173,7 +176,8 @@ def logout():
 @login_required
 def meus_repos():
     repos = repositorios_do_usuario(current_user.id)
-    return render_template("meus_repos.html", repos=repos)
+    return render_template("meus_repos.html", repos=repos,
+                           meses=MESES_ANALISE)
 
 
 @app.route("/repo/<int:id_repositorio>")
@@ -184,7 +188,8 @@ def repo_detalhe(id_repositorio):
     repo = repositorio_por_id(id_repositorio)
     if not repo:
         abort(404)
-    return render_template("repo_detalhe.html", repo=repo)
+    return render_template("repo_detalhe.html", repo=repo,
+                           meses=MESES_ANALISE)
 
 
 @app.route("/api/health")
@@ -261,7 +266,7 @@ def adicionar_repo():
 def remover_repo(id_repositorio):
     if not usuario_dono(current_user.id, id_repositorio):
         abort(403)
-    deslinkar_usuario_repositorio(current_user.id, id_repositorio)
+    desvincular_e_limpar(current_user.id, id_repositorio)
     return jsonify(ok=True)
 
 
@@ -305,7 +310,6 @@ def _metricas_latest(id_repositorio):
         "churn_relativo": num(row["churn_relativo"]),
         "issues_abertas": inteiro(row["issues_abertas"]),
         "issues_fechadas": inteiro(row["issues_fechadas"]),
-        "respostas": inteiro(row["contribuidores_ativos"]),
         "cadencia_releases": num(row["cadencia_releases"]),
     }
 
@@ -316,23 +320,26 @@ def api_repo_resumo(id_repositorio):
     if not usuario_dono(current_user.id, id_repositorio):
         abort(403)
     repo = repositorio_por_id(id_repositorio)
+    inicio = (pd.Timestamp.now() - pd.DateOffset(months=MESES_ANALISE)).date()
     with connection() as conn:
         serie = pd.read_sql(
             """
             SELECT dia, SUM(commits) AS commits, SUM(lines_added) AS add,
                    SUM(lines_deleted) AS del
-            FROM Metrica_Diaria WHERE id_repositorio = %s
+            FROM Metrica_Diaria
+            WHERE id_repositorio = %s AND dia >= %s
             GROUP BY dia ORDER BY dia
             """,
-            conn, params=(id_repositorio,),
+            conn, params=(id_repositorio, inicio),
         )
         autores = pd.read_sql(
             """
             SELECT autor, SUM(commits) AS commits
-            FROM Metrica_Autor_Mensal WHERE id_repositorio = %s
+            FROM Metrica_Autor_Mensal
+            WHERE id_repositorio = %s AND mes >= %s
             GROUP BY autor ORDER BY commits DESC LIMIT 8
             """,
-            conn, params=(id_repositorio,),
+            conn, params=(id_repositorio, inicio),
         )
 
     metricas = _metricas_latest(id_repositorio)
@@ -367,7 +374,7 @@ def api_repo_resumo(id_repositorio):
             {"autor": r.autor, "commits": int(r.commits)}
             for r in autores.itertuples()
         ],
-        "curva": analises.curva_concentracao(id_repositorio),
+        "curva": analises.curva_concentracao(id_repositorio, inicio),
         "score": score,
     })
 
@@ -397,8 +404,25 @@ def api_repo_github(id_repositorio):
 # Coleta em background
 # ---------------------------------------------------------------------------
 
+_coleta_lock = threading.Lock()
+
+
 def tarefa_mineracao(ids=None, token=None):
-    """Executa os dois motores para `ids` (ou todos) e atualiza o status."""
+    """Executa os dois motores para `ids` (ou todos) e atualiza o status.
+
+    Uma coleta por vez: execuções simultâneas são ignoradas. Repos concluídos
+    nos dois motores são marcados mesmo se a execução falhar depois.
+    """
+    if not _coleta_lock.acquire(blocking=False):
+        log.warning("Coleta já em andamento — ignorando nova execução.")
+        return
+    try:
+        _tarefa_mineracao(ids, token)
+    finally:
+        _coleta_lock.release()
+
+
+def _tarefa_mineracao(ids=None, token=None):
     rotulo = f"ids={ids}" if ids else "todos"
     log.info("Iniciando coleta (%s)", rotulo)
     status.atualizar(
@@ -411,20 +435,28 @@ def tarefa_mineracao(ids=None, token=None):
     )
     erros = []
     try:
-        coletar_code_churn(ids)
+        feitos_churn = coletar_code_churn(ids) or []
     except Exception:
         log.exception("Erro no Passo 2 (PyDriller)")
         erros.append("PyDriller")
+        feitos_churn = []
     try:
-        coletar_metricas_sociais(ids, token=token)
+        feitos_gh = coletar_metricas_sociais(ids, token=token) or []
     except Exception:
         log.exception("Erro no Passo 3 (GitHub API)")
         erros.append("GitHub API")
+        feitos_gh = []
     if erros:
+        comuns = sorted(set(feitos_churn) & set(feitos_gh))
+        if comuns:
+            try:
+                marcar_coletado(comuns)
+            except Exception:
+                log.exception("Falha ao registrar conclusão da coleta")
         status.atualizar(estado="erro", repo_atual=None,
                          mensagem="Falha em: " + ", ".join(erros))
     else:
-        alvo = ids if ids else [r["id_repositorio"] for r in get_repositorios()]
+        alvo = ids if ids else feitos_churn
         try:
             marcar_coletado(alvo)
         except Exception:
@@ -432,6 +464,20 @@ def tarefa_mineracao(ids=None, token=None):
         status.atualizar(estado="concluido", etapa=None, repo_atual=None,
                          mensagem="Coleta concluída.")
     log.info("Coleta finalizada (%s)", rotulo)
+
+
+def tarefa_agendada():
+    """Coleta periódica: apenas os repositórios vinculados a algum usuário."""
+    try:
+        ids = repositorios_vinculados()
+    except Exception:
+        log.exception("Falha ao listar repositórios vinculados")
+        return
+    if not ids:
+        status.atualizar(estado="concluido", etapa=None, repo_atual=None,
+                         mensagem="Nenhum repositório vinculado.")
+        return
+    tarefa_mineracao(ids)
 
 
 def iniciar_autocoleta():
@@ -464,13 +510,14 @@ def iniciar_autocoleta():
 INTERVALO_DIAS = int(os.getenv("MINERACAO_INTERVALO_DIAS", "7"))
 scheduler = BackgroundScheduler()
 scheduler.add_job(
-    tarefa_mineracao,
+    tarefa_agendada,
     trigger=IntervalTrigger(days=INTERVALO_DIAS),
     id="mineracao",
     replace_existing=True,
 )
 scheduler.start()
-iniciar_autocoleta()
+if os.getenv("FAP_SEM_AUTOCOLETA") != "1":
+    iniciar_autocoleta()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
-"""Smoke das rotas com o test client do Flask (usa o banco de teste)."""
+"""Smoke das rotas com o test client do Flask (login simulado via sessão)."""
 import pytest
+
+GITHUB_ID_TESTE = 987654321
 
 
 @pytest.fixture()
@@ -8,6 +10,16 @@ def client():
     app_mod.app.config["TESTING"] = True
     with app_mod.app.test_client() as c:
         yield c
+
+
+@pytest.fixture()
+def logado(client):
+    from database import upsert_usuario
+    id_usuario = upsert_usuario(github_id=GITHUB_ID_TESTE, login="dev-teste",
+                                nome="Teste")
+    with client.session_transaction() as s:
+        s["_user_id"] = str(id_usuario)
+    return id_usuario
 
 
 def test_health_publico(client):
@@ -33,9 +45,14 @@ def test_login_dev_bloqueado_fora_de_localhost(client):
     assert resp.status_code == 404
 
 
-def test_fluxo_dev_completo(client):
-    assert client.get("/login/dev").status_code == 302
+def test_login_dev_disponivel_sem_oauth(client, monkeypatch):
+    import app as app_mod
+    monkeypatch.setattr(app_mod, "OAUTH_CONFIGURADO", False)
+    resp = client.get("/login/dev")
+    assert resp.status_code == 302
 
+
+def test_fluxo_logado_completo(client, logado):
     assert client.get("/").status_code == 200
 
     repos = client.get("/api/repos")
@@ -49,16 +66,15 @@ def test_fluxo_dev_completo(client):
     # repo inexistente não pertence ao usuário logado -> 403
     assert client.get("/repo/9999999").status_code == 403
     assert client.get("/api/repo/9999999/resumo").status_code == 403
+    assert client.get("/api/repo/9999999/github").status_code == 403
 
 
-def test_adicionar_repo_com_url_invalida(client):
-    client.get("/login/dev")
+def test_adicionar_repo_com_url_invalida(client, logado):
     resp = client.post("/repos", json={"url": "https://github.com/so-um-dono"})
     assert resp.status_code == 400
     assert "erro" in resp.get_json()
 
 
-def test_adicionar_repo_sem_url(client):
-    client.get("/login/dev")
+def test_adicionar_repo_sem_url(client, logado):
     resp = client.post("/repos", json={})
     assert resp.status_code == 400
