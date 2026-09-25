@@ -33,11 +33,6 @@ def init_schema():
     log.info("Schema aplicado (%s).", schema_path)
 
 
-def coleta_pendente():
-    """True se algum repositório ainda não tem métricas de sustentabilidade."""
-    return bool(repositorios_pendentes())
-
-
 def repositorios_pendentes():
     """Ids dos repositórios vinculados a usuários ainda sem coleta concluída."""
     with connection() as conn:

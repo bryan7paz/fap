@@ -19,13 +19,10 @@ function badgeStatus(repo) {
 
 function render() {
     const body = document.getElementById("repo-body");
-    const vazio = document.getElementById("vazio");
     if (!repos.length) {
         body.innerHTML = '<tr class="loading-row"><td colspan="4">Nenhum repositório — adicione o primeiro acima.</td></tr>';
-        if (vazio) vazio.hidden = false;
         return;
     }
-    if (vazio) vazio.hidden = true;
     body.innerHTML = repos.map(r => `
         <tr class="linha-repo" data-id="${r.id_repositorio}" style="cursor:pointer">
             <td><strong>${esc(r.nome_exibicao || r.nome)}</strong></td>
